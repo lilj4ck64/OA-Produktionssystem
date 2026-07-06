@@ -5,9 +5,15 @@ clear
 
 echo "Projektname: $1";
 
+#mkdir Projekte/$1/Outputs
+
+mkdir Projekte/$1/Outputs -p
+
 echo "Output-Ordner des Projekts leeren"
-rm Projekte/$1/Outputs/* /F /Q
-rmdir Projekte/$1/Outputs/E-Formate /S /Q
+#rm Projekte/$1/Outputs/* /F /Q
+#rmdir Projekte/$1/Outputs/E-Formate /S /Q
+rm -rf Projekte/$1/Outputs/*
+rm -rf Projekte/$1/Outputs/E-Formate
 
 #echo "Erstellung eines highres PDF mit Apache FOP"
 bash 02_pdf-print.sh $1

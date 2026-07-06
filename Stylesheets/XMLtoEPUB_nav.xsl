@@ -20,9 +20,9 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 <xsl:output method="xhtml"
 			encoding="utf-8"/>
 
-<xsl:template match="book">
+<!-- <xsl:template match="book">
 	<xsl:call-template name="navhtml"/> 
-</xsl:template>
+</xsl:template> -->
 
 <xsl:template name="navhtml">
 	<xsl:result-document method="xhtml" href="{$EPUB_navhtml}">
