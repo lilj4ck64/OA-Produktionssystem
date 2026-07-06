@@ -16,17 +16,17 @@ Public License Version 3. Read LICENSE.txt for more information about license.
 
 This distribution package contains the following folders and files:
 
-folder Fonts
-folder Projekte
-folder Stylesheets
-folder Werkzeuge
-README.md	- This file
-01_LICENSE.txt	- License information
-02_pdf-print.sh - shellscript file for create high resolution PDF file 
-03_pdf-web.sh	- shellscript file for create low resolution PDF file 
-04_epub.sh	- shellscript file for create EPUB file
-05_mobi.sh	- shellscript file for create MOBI file
-Publikationsformate_erzeugen.sh  - central shellscript file
+- folder Fonts
+- folder Projekte
+- folder Stylesheets
+- folder Werkzeuge
+- README.md	- This file
+- 01_LICENSE.txt	- License information
+- 02_pdf-print.sh - shellscript file for create high resolution PDF file 
+- 03_pdf-web.sh	- shellscript file for create low resolution PDF file 
+- 04_epub.sh	- shellscript file for create EPUB file
+- 05_mobi.sh	- shellscript file for create MOBI file
+- Publikationsformate_erzeugen.sh  - central shellscript file
 
 ---
 End of document
