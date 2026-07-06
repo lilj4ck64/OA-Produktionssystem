@@ -20,7 +20,7 @@ folder Fonts
 folder Projekte
 folder Stylesheets
 folder Werkzeuge
-00_README.txt	- This file
+README.md	- This file
 01_LICENSE.txt	- License information
 02_pdf-print.sh - shellscript file for create high resolution PDF file 
 03_pdf-web.sh	- shellscript file for create low resolution PDF file 
