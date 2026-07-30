@@ -16,8 +16,10 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 <fop version="1.0">
 
   <!-- Base URL for resolving relative URLs -->
-  <base>.</base>
+  <base>../Projekte/</base>
   
+  <font-base>../Assets/Fonts/</font-base>
+
   <!-- Einstellen der Silbentrennung -->
   <hyphenation-pattern lang="de">de</hyphenation-pattern>
 
@@ -56,51 +58,58 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 		Schriftart Source Serif Pro
 		********************************************************* -->
 
-		<font embed-url="..\Fonts\Source_Serif_Pro\SourceSerifPro-Black.otf" kerning="yes">
-			<font-triplet name="Source Sans Pro Black" style="normal" weight="normal"/>
+		<fonts>
+        <!-- embedded fonts -->	
+		
+		<!-- *****************************************************
+		Schriftart Source Serif Pro
+		********************************************************* -->
+
+		<font embed-url="Source_Serif_Pro/SourceSerifPro-Black.otf" kerning="yes">
+			<font-triplet name="Source Serif Pro Black" style="normal" weight="normal"/>
         </font>
 		
-		<font embed-url="..\Fonts\Source_Serif_Pro\SourceSerifPro-BlackItalic.otf" kerning="yes">
+		<font embed-url="Source_Serif_Pro/SourceSerifPro-BlackIt.otf" kerning="yes">
 			<font-triplet name="Source Serif Pro BlackItalic" style="normal" weight="normal"/>
         </font>
 		
-		<font embed-url="..\Fonts\Source_Serif_Pro\SourceSerifPro-Bold.otf" kerning="yes">
+		<font embed-url="Source_Serif_Pro/SourceSerifPro-Bold.otf" kerning="yes">
 			<font-triplet name="Source Serif Pro Bold" style="normal" weight="normal"/>
         </font>
 		
-		<font embed-url="..\Fonts\Source_Serif_Pro\SourceSerifPro-BoldItalic.otf" kerning="yes">
+		<font embed-url="Source_Serif_Pro/SourceSerifPro-BoldIt.otf" kerning="yes">
 			<font-triplet name="Source Serif Pro BoldItalic" style="normal" weight="normal"/>
         </font>
 		
-		<font embed-url="..\Fonts\Source_Serif_Pro\SourceSerifPro-ExtraLight.otf" kerning="yes">
+		<font embed-url="Source_Serif_Pro/SourceSerifPro-ExtraLight.otf" kerning="yes">
 			<font-triplet name="Source Serif Pro ExtraLight" style="normal" weight="normal"/>
         </font>
 		
-		<font embed-url="..\Fonts\Source_Serif_Pro\SourceSerifPro-ExtraLightIt.otf" kerning="yes">
+		<font embed-url="Source_Serif_Pro/SourceSerifPro-ExtraLightIt.otf" kerning="yes">
 			<font-triplet name="Source Serif Pro ExtraLightItalic" style="normal" weight="normal"/>
         </font>
 		
-		<font embed-url="..\Fonts\Source_Serif_Pro\SourceSerifPro-It.otf" kerning="yes">
+		<font embed-url="Source_Serif_Pro/SourceSerifPro-It.otf" kerning="yes">
 			<font-triplet name="Source Serif Pro Italic" style="normal" weight="normal"/>
         </font>
 		
-		<font embed-url="..\Fonts\Source_Serif_Pro\SourceSerifPro-Light.otf" kerning="yes">
+		<font embed-url="Source_Serif_Pro/SourceSerifPro-Light.otf" kerning="yes">
 			<font-triplet name="Source Serif Pro Light" style="normal" weight="normal"/>
         </font>
 		
-		<font embed-url="..\Fonts\Source_Serif_Pro\SourceSerifPro-LightIt.otf" kerning="yes">
+		<font embed-url="Source_Serif_Pro/SourceSerifPro-LightIt.otf" kerning="yes">
 			<font-triplet name="Source Serif Pro LightItalic" style="normal" weight="normal"/>
         </font>
 		
-		<font embed-url="..\Fonts\Source_Serif_Pro\SourceSerifPro-Regular.otf" kerning="yes">
+		<font embed-url="Source_Serif_Pro/SourceSerifPro-Regular.otf" kerning="yes">
 			<font-triplet name="Source Serif Pro Regular" style="normal" weight="normal"/>
         </font>
 		
-		<font embed-url="..\Fonts\Source_Serif_Pro\SourceSerifPro-Semibold.otf" kerning="yes">
+		<font embed-url="Source_Serif_Pro/SourceSerifPro-Semibold.otf" kerning="yes">
 			<font-triplet name="Source Serif Pro Semibold" style="normal" weight="normal"/>
         </font>
 		
-		<font embed-url="..\Fonts\Source_Serif_Pro\SourceSerifPro-SemiboldIt.otf" kerning="yes">
+		<font embed-url="Source_Serif_Pro/SourceSerifPro-SemiboldIt.otf" kerning="yes">
 			<font-triplet name="Source Serif Pro SemiboldItalic" style="normal" weight="normal"/>
         </font>
 
@@ -109,51 +118,51 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 		Schriftart Source Sans Pro
 		********************************************************* -->
 		
-		<font embed-url="..\Fonts\Source_Sans_Pro\SourceSansPro-Black.ttf" kerning="yes">
+		<font embed-url="Source_Sans_Pro/SourceSansPro-Black.ttf" kerning="yes">
 			<font-triplet name="Source Sans Pro Black" style="normal" weight="normal"/>
         </font>
 		
-		<font embed-url="..\Fonts\Source_Sans_Pro\SourceSansPro-BlackItalic.ttf" kerning="yes">
+		<font embed-url="Source_Sans_Pro/SourceSansPro-BlackItalic.ttf" kerning="yes">
 			<font-triplet name="Source Sans Pro BlackItalic" style="normal" weight="normal"/>
         </font>
 		
-		<font embed-url="..\Fonts\Source_Sans_Pro\SourceSansPro-Bold.ttf" kerning="yes">
+		<font embed-url="Source_Sans_Pro/SourceSansPro-Bold.ttf" kerning="yes">
 			<font-triplet name="Source Sans Pro Bold" style="normal" weight="normal"/>
         </font>
 		
-		<font embed-url="..\Fonts\Source_Sans_Pro\SourceSansPro-BoldItalic.ttf" kerning="yes">
+		<font embed-url="Source_Sans_Pro/SourceSansPro-BoldItalic.ttf" kerning="yes">
 			<font-triplet name="Source Sans Pro BoldItalic" style="normal" weight="normal"/>
         </font>
 		
-		<font embed-url="..\Fonts\Source_Sans_Pro\SourceSansPro-ExtraLight.ttf" kerning="yes">
+		<font embed-url="Source_Sans_Pro/SourceSansPro-ExtraLight.ttf" kerning="yes">
 			<font-triplet name="Source Sans Pro ExtraLight" style="normal" weight="normal"/>
         </font>
 		
-		<font embed-url="..\Fonts\Source_Sans_Pro\SourceSansPro-ExtraLightItalic.ttf" kerning="yes">
+		<font embed-url="Source_Sans_Pro/SourceSansPro-ExtraLightItalic.ttf" kerning="yes">
 			<font-triplet name="Source Sans Pro ExtraLightItalic" style="normal" weight="normal"/>
         </font>
 		
-		<font embed-url="..\Fonts\Source_Sans_Pro\SourceSansPro-Italic.ttf" kerning="yes">
+		<font embed-url="Source_Sans_Pro/SourceSansPro-Italic.ttf" kerning="yes">
 			<font-triplet name="Source Sans Pro Italic" style="normal" weight="normal"/>
         </font>
 		
-		<font embed-url="..\Fonts\Source_Sans_Pro\SourceSansPro-Light.ttf" kerning="yes">
+		<font embed-url="Source_Sans_Pro/SourceSansPro-Light.ttf" kerning="yes">
 			<font-triplet name="Source Sans Pro Light" style="normal" weight="normal"/>
         </font>
 		
-		<font embed-url="..\Fonts\Source_Sans_Pro\SourceSansPro-LightItalic.ttf" kerning="yes">
+		<font embed-url="Source_Sans_Pro/SourceSansPro-LightItalic.ttf" kerning="yes">
 			<font-triplet name="Source Sans Pro LightItalic" style="normal" weight="normal"/>
         </font>
 		
-		<font embed-url="..\Fonts\Source_Sans_Pro\SourceSansPro-Regular.ttf" kerning="yes">
+		<font embed-url="Source_Sans_Pro/SourceSansPro-Regular.ttf" kerning="yes">
 			<font-triplet name="Source Sans Pro Regular" style="normal" weight="normal"/>
         </font>
 		
-		<font embed-url="..\Fonts\Source_Sans_Pro\SourceSansPro-SemiBold.ttf" kerning="yes">
+		<font embed-url="Source_Sans_Pro/SourceSansPro-SemiBold.ttf" kerning="yes">
 			<font-triplet name="Source Sans Pro SemiBold" style="normal" weight="normal"/>
         </font>
 		
-		<font embed-url="..\Fonts\Source_Sans_Pro\SourceSansPro-SemiBoldItalic.ttf" kerning="yes">
+		<font embed-url="Source_Sans_Pro/SourceSansPro-SemiBoldItalic.ttf" kerning="yes">
 			<font-triplet name="Source Sans Pro SemiBoldItalic" style="normal" weight="normal"/>
         </font>
 		
@@ -161,25 +170,25 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 		Schriftart Source Code Pro
 		********************************************************* -->
 		
-		<font embed-url="..\Fonts\Source_Code_Pro\SourceCodePro-Black.ttf" kerning="yes">
+		<font embed-url="Source_Code_Pro/SourceCodePro-Black.ttf" kerning="yes">
 			<font-triplet name="Source Code Pro Black" style="normal" weight="normal"/>
         </font>
-		<font embed-url="..\Fonts\Source_Code_Pro\SourceCodePro-Bold.ttf" kerning="yes">
+		<font embed-url="Source_Code_Pro/SourceCodePro-Bold.ttf" kerning="yes">
 			<font-triplet name="Source Code Pro Bold" style="normal" weight="normal"/>
         </font>
-		<font embed-url="..\Fonts\Source_Code_Pro\SourceCodePro-Extra-Light.ttf" kerning="yes">
+		<font embed-url="Source_Code_Pro/SourceCodePro-ExtraLight.ttf" kerning="yes">
 			<font-triplet name="Source Code Pro Extra-Light" style="normal" weight="normal"/>
         </font>
-		<font embed-url="..\Fonts\Source_Code_Pro\SourceCodePro-Light.ttf" kerning="yes">
+		<font embed-url="Source_Code_Pro/SourceCodePro-Light.ttf" kerning="yes">
 			<font-triplet name="Source Code Pro Light" style="normal" weight="normal"/>
         </font>
-		<font embed-url="..\Fonts\Source_Code_Pro\SourceCodePro-Medium.ttf" kerning="yes">
+		<font embed-url="Source_Code_Pro/SourceCodePro-Medium.ttf" kerning="yes">
 			<font-triplet name="Source Code Pro Medium" style="normal" weight="normal"/>
         </font>
-		<font embed-url="..\Fonts\Source_Code_Pro\SourceCodePro-Regular.ttf" kerning="yes">
+		<font embed-url="Source_Code_Pro/SourceCodePro-Regular.ttf" kerning="yes">
 			<font-triplet name="Source Code Pro Regular" style="normal" weight="normal"/>
         </font>
-		<font embed-url="..\Fonts\Source_Code_Pro\SourceCodePro-Semibold.ttf" kerning="yes">
+		<font embed-url="Source_Code_Pro/SourceCodePro-Semibold.ttf" kerning="yes">
 			<font-triplet name="Source Code Pro Semibold" style="normal" weight="normal"/>
         </font>
       </fonts>

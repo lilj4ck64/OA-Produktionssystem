@@ -16,11 +16,12 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
                 xmlns:xlink="http://www.w3.org/1999/xlink"
                 xmlns:fo="http://www.w3.org/1999/XSL/Format">
 
-<!-- Übernahme des aktuellen Projektnamens -->
-<xsl:param name="Projektname"/>
+
+
 
 <!-- Einbinden der BITS-Bibliothek-->
 <xsl:include href="XMLtoPDF_BITSBibliothek_FOP.xsl"/>
+
 
 <!-- Template für den Wurzelknoten -->
 <xsl:template match="book">
@@ -739,7 +740,7 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 	<fo:block-container absolute-position="absolute"
 						top="{$Abstand_davor_Logo_Titel}">
 		<fo:block>
-			<fo:external-graphic content-width="{$Skalierung_Logo_Titel}" src="../Projekte/Musterbuch/Media/Images/HTWK_Logo.jpg"/>
+			<fo:external-graphic content-width="{$Skalierung_Logo_Titel}" src="../Assets/Images/{$Logo}"/>
 		</fo:block>
 	</fo:block-container>
 </xsl:template>
@@ -798,7 +799,7 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 					<fo:table-row>
 						<fo:table-cell column-number="1">
 							<fo:block>
-								<fo:external-graphic content-width="{$Skalierung_CC-Hinweis}" src="../Projekte/Musterbuch/Media/Images/CC_Hinweis.jpg"/>
+								<fo:external-graphic content-width="{$Skalierung_CC-Hinweis}" src="../Assets/Images/CC_Hinweis.jpg"/>
 							</fo:block>
 						</fo:table-cell>
 						<fo:table-cell column-number="2">
@@ -819,7 +820,7 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 					<fo:table-row>
 						<fo:table-cell column-number="1">
 							<fo:block>
-								<fo:external-graphic content-width="{$Skalierung_QR-Code}" src="../Projekte/Musterbuch/Media/Images/qr-doi.jpg"/>
+								<fo:external-graphic content-width="{$Skalierung_QR-Code}" src="../Projekte/{$Projektname}/Media/Images/qr-doi.jpg"/>
 							</fo:block>
 						</fo:table-cell>
 						<fo:table-cell column-number="2">

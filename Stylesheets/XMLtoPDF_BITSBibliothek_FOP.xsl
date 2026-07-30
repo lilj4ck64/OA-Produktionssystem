@@ -21,6 +21,7 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 <!-- Übernahme des aktuellen Projektnamens -->
 <xsl:param name="Projektname"/>
 
+
 <!-- Einbinden der Konfigurationsdatei -->
 <xsl:include href="config.xsl"/>
 	
@@ -179,10 +180,6 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 
 <!-- Templates für den Knoten permissions -->
 <xsl:template match="permissions">
-	<xsl:apply-templates/>
-</xsl:template>
-
-<xsl:template match="permissions/copyright-statement">
 	<xsl:apply-templates/>
 </xsl:template>
 
@@ -425,7 +422,7 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 </xsl:template>
 
 	<!-- Template für die Überschrift 2.Grades -->
-	<xsl:template match="sec">
+	<xsl:template match="sec" priority="1">
 		<!-- Marker für Kolumnentitel -->
 		<fo:block id="{generate-id(.)}">
 			<fo:marker marker-class-name="Kapitelueberschrift_2.Grades">
@@ -498,7 +495,7 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 	</xsl:template>
 
 	<!-- Template für die Überschrift 3.Grades -->
-	<xsl:template match="sec/sec">
+	<xsl:template match="sec/sec" priority="2">
 		<!-- Marker für Kolumnentitel -->
 		<fo:block id="{generate-id(.)}">
 			<fo:marker marker-class-name="Kapitelueberschrift">
@@ -566,7 +563,7 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 	</xsl:template>
 
 	<!-- Template für die Überschrift 4.Grades -->
-	<xsl:template match="sec/sec/sec">
+	<xsl:template match="sec/sec/sec" priority="3">
 		<!-- Marker für Kolumnentitel -->
 		<fo:block id="{generate-id(.)}">
 			<fo:marker marker-class-name="Kapitelueberschrift">
@@ -632,7 +629,7 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 	</xsl:template>
 
 	<!-- Template für die Überschrift 5.Grades -->
-	<xsl:template match="sec/sec/sec/sec">
+	<xsl:template match="sec/sec/sec/sec" priority="4">
 		<!-- Marker für Kolumnentitel -->
 		<fo:block id="{generate-id(.)}">
 			<fo:marker marker-class-name="Kapitelueberschrift">
@@ -1016,7 +1013,7 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 	<xsl:template match="graphic">
 		<fo:block>
 			<fo:external-graphic scaling="uniform"
-								 src="../Projekte/{$Projektname}/Media/Images/{@xlink:href}"
+								 src="{$Projektname}/Media/Images/{@xlink:href}"
 								 content-width="scale-to-fit"
 								 content-height="100%"
 								 width="100%"/>
@@ -1046,7 +1043,7 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 	<xsl:template match="inline-graphic">
 		<fo:inline>
 			<fo:external-graphic scaling="uniform"
-								 src="../Projekte/{$Projektname}/Media/Images/{@xlink:href}"
+								 src="{$Projektname}/Media/Images/{@xlink:href}"
 								 content-width="auto"
 								 max-width="{$Satzspiegelbreite}"/>
 		</fo:inline>
@@ -1065,7 +1062,7 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 						<fo:table-cell column-number="1" display-align="center">
 							<fo:block>
 								<fo:external-graphic scaling="uniform"
-												     src="../Projekte/{$Projektname}/Media/Images/{@xlink:href}"
+												     src="{$Projektname}/Media/Images/{@xlink:href}"
 													 content-width="{$Formelgrafik_Skalierung}"
 													 content-height="auto"/>
 							</fo:block>
@@ -1215,7 +1212,7 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 		</xsl:choose>	
 	</xsl:template>
 
-	<xsl:template match="list/list-item">
+	<xsl:template match="list/list-item" priority="1">
 		<fo:block>
 			<fo:list-block provisional-distance-between-starts="{$Abstand_Listenlabel_Listentext}"
 						   orphans="{$Schusterjunge_Einstellung}"
@@ -1253,14 +1250,14 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 	</xsl:template>
 
 	<!-- Templates für verschachtelte Listen -->
-	<xsl:template match="list/list-item/list">
+	<xsl:template match="list/list-item/list" priority="2">
 		<fo:block space-after="{$Abstand_danach_Listen}">
 			<xsl:apply-templates/>
 		</fo:block>
 		
 	</xsl:template>
 
-	<xsl:template match="list/list-item/list/list-item">
+	<xsl:template match="list/list-item/list/list-item" priority="3">
 		<fo:block>
 			<fo:list-block>
 				<fo:list-item>
