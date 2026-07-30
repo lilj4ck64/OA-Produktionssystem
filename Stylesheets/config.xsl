@@ -26,8 +26,8 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 	 
 <xsl:variable name="Ausgabeformat">Hardcover</xsl:variable>
 
-<!-- Logo-Dateiname -->
-<xsl:variable name="Logo">HTWK_Logo.jpg</xsl:variable>
+<!-- Shared Images -->
+<xsl:variable name="Shared_Images">../Shared/Images/</xsl:variable>
 
 <!-- *****************************************************
   Format und Stege

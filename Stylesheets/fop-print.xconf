@@ -18,7 +18,7 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
   <!-- Base URL for resolving relative URLs -->
   <base>../Projekte/</base>
   
-  <font-base>../Assets/Fonts/</font-base>
+  <font-base>../Shared/Fonts/</font-base>
 
   <!-- Einstellen der Silbentrennung -->
   <hyphenation-pattern lang="de">de</hyphenation-pattern>
