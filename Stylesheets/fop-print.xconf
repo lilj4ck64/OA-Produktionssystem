@@ -51,13 +51,6 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 
         <!-- <value>ascii-hex</value> -->
       </filterList>
-      <fonts>
-        <!-- embedded fonts -->
-        	
-		<!-- *****************************************************
-		Schriftart Source Serif Pro
-		********************************************************* -->
-
 		<fonts>
         <!-- embedded fonts -->	
 		
