@@ -1,3 +1,49 @@
 .DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editors and local environment/secrets.
+.idea/
+.vscode/
+*.iml
+*.swp
+*~
+.env
+.env.*
+!.env.example
+
+# Go build, test, coverage, and profiling output.
+/oa
+/oa.exe
+/*.test
+*.out
+coverage.*
+*.prof
+
+# Locally assembled release packages.
+/dist/
+/build/
+/SHA256SUMS
+/oa-satzsystem-*.zip
+/oa-satzsystem-*.tar.gz
+
+# Logs and transient files.
+*.log
+*.tmp
+
+# Local persistent-server smoke-test data.
+/.server-data*/
+
 Projekte/*
 !Projekte/Musterbuch/
+
+# Local Gradle state and generated Java runtime staging.
+.gradle-user-home/
+.tmp/
+java-toolchain/.gradle/
+java-toolchain/build/
+
+# Generated publication artifacts are not regular project sources.
+Projekte/*/Outputs/
+
+ideas.md

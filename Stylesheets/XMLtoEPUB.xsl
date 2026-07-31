@@ -19,6 +19,7 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 <xsl:output method="xhtml"
 			encoding="utf-8"/>
 <xsl:param name="Projekt"/>
+<xsl:param name="OutputRoot"/>
 
 <xsl:include href="config.xsl"/>
 <xsl:include href="XMLtoEPUB_Content.xsl"/>
@@ -51,4 +52,4 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 	</p>
 </xsl:template>
 	
-</xsl:stylesheet>	
+</xsl:stylesheet>

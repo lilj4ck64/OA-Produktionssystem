@@ -820,7 +820,7 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 					<fo:table-row>
 						<fo:table-cell column-number="1">
 							<fo:block>
-								<fo:external-graphic content-width="{$Skalierung_QR-Code}" src="../Projekte/{$Projektname}/Media/Images/qr-doi.jpg"/>
+								<fo:external-graphic content-width="{$Skalierung_QR-Code}" src="{$Projektpfad}/Media/Images/qr-doi.jpg"/>
 							</fo:block>
 						</fo:table-cell>
 						<fo:table-cell column-number="2">

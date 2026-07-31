@@ -1,0 +1,32 @@
+{{define "job"}}
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Build – OA Satzsystem</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main>
+    <header>
+      <p class="eyebrow">Buildauftrag</p>
+      <h1>{{.Project}}</h1>
+      <p id="status">Status: {{.Status}}</p>
+    </header>
+    <section class="card">
+      <h2>Fortschritt und Logs</h2>
+      <progress id="progress" max="100" value="{{.Progress}}"></progress>
+      <pre id="logs">{{.Logs}}</pre>
+      <div id="artifacts"></div>
+      <p id="save-status" role="status"></p>
+      <button type="button" id="save-folder" hidden>In den ausgewählten Ordner schreiben</button>
+      <p><a class="button secondary" href="/">Zurück zur Übersicht</a></p>
+    </section>
+  </main>
+  <script>window.OA_JOB_ID = {{.ID}};</script>
+  <script>window.OA_PROJECT_NAME = {{.Project}};</script>
+  <script src="/static/job.js"></script>
+</body>
+</html>
+{{end}}

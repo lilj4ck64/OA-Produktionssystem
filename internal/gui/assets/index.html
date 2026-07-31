@@ -1,0 +1,96 @@
+{{define "index"}}
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OA Satzsystem</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main>
+    <header>
+      <p class="eyebrow">{{if .Username}}Server · Angemeldet als {{.Username}}{{else}}Lokale Browser-GUI{{end}}</p>
+      <h1>OA Satzsystem</h1>
+      <p>Projekt importieren, prüfen und als PDF oder EPUB bauen.</p>
+      {{if .Username}}<nav>
+        {{if .IsAdmin}}<a class="button secondary" href="/admin/users">Benutzer verwalten</a>{{end}}
+        <form class="inline" action="/logout" method="post"><input type="hidden" name="csrf_token" value="{{.CSRF}}"><button class="secondary" type="submit">Abmelden</button></form>
+      </nav>{{end}}
+    </header>
+
+    {{if .Message}}<div class="notice">{{.Message}}</div>{{end}}
+    {{if .Error}}<div class="notice error">{{.Error}}</div>{{end}}
+
+    <section class="card">
+      <h2>Projekt importieren</h2>
+      {{if .Local}}
+      <div id="folder-import">
+        <p>Wähle den vorhandenen Projektordner aus. Nach dem Build schreibt die GUI die fertigen Dateien mit deiner Browserfreigabe direkt in dessen Unterordner <code>Outputs</code>.</p>
+        <button type="button" id="choose-folder">Projektordner auswählen</button>
+        <p id="folder-status" role="status"></p>
+      </div>
+      <details>
+        <summary>ZIP-Datei als Alternative importieren</summary>
+      {{end}}
+      <form action="/import" method="post" enctype="multipart/form-data" id="upload-form">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <label class="dropzone" id="dropzone">
+          <strong>Projekt-ZIP hier ablegen</strong>
+          <span>oder Datei auswählen</span>
+          <input type="file" name="project" accept=".zip,application/zip" required>
+        </label>
+        <button type="submit">Importieren</button>
+      </form>
+      {{if .Local}}</details>
+      <noscript>Die Ordnerauswahl benötigt JavaScript. Der ZIP-Import funktioniert auch ohne JavaScript.</noscript>
+      {{end}}
+    </section>
+
+    <section class="card">
+      <h2>Importierte Projekte</h2>
+      {{if .Projects}}
+      <div class="projects">
+        {{range .Projects}}
+        <article>
+          <h3>{{.Name}}</h3>
+          <p>{{.Path}}</p>
+          <form action="/build" method="post">
+            <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+            <input type="hidden" name="project" value="{{.Name}}">
+            <fieldset>
+              <legend>Ausgabeformate</legend>
+              <label><input type="checkbox" name="format" value="print-pdf" checked> Print-PDF</label>
+              <label><input type="checkbox" name="format" value="web-pdf"> Web-PDF</label>
+              <label><input type="checkbox" name="format" value="epub"> EPUB</label>
+            </fieldset>
+            <div class="actions">
+              <a class="button secondary" href="/validate?project={{.URLName}}">Prüfen</a>
+              <button type="submit">Bauen</button>
+            </div>
+          </form>
+        </article>
+        {{end}}
+      </div>
+      {{else}}<p>Noch kein Projekt importiert.</p>{{end}}
+    </section>
+
+    {{if .Jobs}}
+    <section class="card">
+      <h2>Letzte Buildaufträge</h2>
+      <div class="projects">
+        {{range .Jobs}}
+        <article>
+          <h3>{{.Project}}</h3>
+          <p>Status: {{.Status}}</p>
+          <a class="button secondary" href="/jobs/{{.ID}}">Auftrag öffnen</a>
+        </article>
+        {{end}}
+      </div>
+    </section>
+    {{end}}
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>
+{{end}}

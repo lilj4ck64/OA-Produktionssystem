@@ -16,7 +16,9 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 				xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
 				xmlns:xlink="http://www.w3.org/1999/xlink"
 				xmlns="http://www.idpf.org/2007/opf"
-				xmlns:a="http://www.daisy.org/z3986/2005/ncx/">			
+				xmlns:a="http://www.daisy.org/z3986/2005/ncx/"
+				xmlns:oa="urn:oa-satzsystem"
+				exclude-result-prefixes="oa">
 
 <xsl:output method="xhtml"
 			encoding="utf-8"/>
@@ -99,7 +101,7 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 		<xsl:variable name="url">
 			<!--<xsl:value-of select="$EPUB_Text_Pfad"/>-->
 			<xsl:text>Content/Kapitel_</xsl:text>  <!--Vorläufig, muss noch überprüft werden -->
-			<xsl:value-of select="book-part-meta/title-group/label"/>
+			<xsl:value-of select="oa:safe-name(book-part-meta/title-group/label)"/>
 			<xsl:value-of select="$Contentausgabeformat"/>
 		</xsl:variable>
 		<xsl:message>
@@ -108,7 +110,7 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 		</xsl:message>
 		<xsl:variable name="uri">
 			<xsl:text>Kapitel_</xsl:text>
-			<xsl:value-of select="book-part-meta/title-group/label"/>
+			<xsl:value-of select="oa:safe-name(book-part-meta/title-group/label)"/>
 		</xsl:variable>		
 		<item href="{$url}" id="{$uri}" media-type="application/xhtml+xml"/>
 	</xsl:for-each>
@@ -120,7 +122,7 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 			<xsl:text>Content/</xsl:text>  <!--Vorläufig, muss noch überprüft werden -->
 			<xsl:value-of select="$Anhang"/>
 			<xsl:text>_</xsl:text>
-			<xsl:value-of select="@id"/>
+			<xsl:value-of select="oa:safe-name(@id)"/>
 			<xsl:value-of select="$Contentausgabeformat"/>
 		</xsl:variable>
 		<xsl:message>
@@ -279,7 +281,7 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 	<xsl:for-each select="//book-part[@book-part-type = 'chapter']">
 		<xsl:variable name="uri">
 			<xsl:text>Kapitel_</xsl:text>
-			<xsl:value-of select="book-part-meta/title-group/label"/>
+			<xsl:value-of select="oa:safe-name(book-part-meta/title-group/label)"/>
 		</xsl:variable>		
 		<itemref idref="{$uri}" />
 	</xsl:for-each>
@@ -446,15 +448,14 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 				<xsl:for-each select="//book-part[@book-part-type='chapter']">
 					<xsl:variable name="uri">
 			 			<xsl:text>Content/Kapitel_</xsl:text>
-		 				<xsl:value-of select="book-part-meta/title-group/label"/>
-		 				<xsl:value-of select="translate(title,'äöüÄÖÜß ','aouAOUs_')"/>
+						<xsl:value-of select="oa:safe-name(book-part-meta/title-group/label)"/>
 						<xsl:value-of select="$Contentausgabeformat"/>
 					</xsl:variable>
 				        
                 	<navPoint>
 					<xsl:attribute name="id">
 					<xsl:text>Kapitel_</xsl:text>
-						<xsl:value-of select="book-part-meta/title-group/label"/>
+						<xsl:value-of select="oa:safe-name(book-part-meta/title-group/label)"/>
 					</xsl:attribute>
 										
 					<navLabel>
@@ -478,7 +479,7 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 						<xsl:text>Content/</xsl:text>
 						<xsl:value-of select="$Anhang"/>
 						<xsl:text>_</xsl:text>
-						<xsl:value-of select="@id"/>
+						<xsl:value-of select="oa:safe-name(@id)"/>
 						<xsl:value-of select="$Contentausgabeformat"/>
 					</xsl:variable>
 					
@@ -539,4 +540,4 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 
 
 
-</xsl:stylesheet>	
+</xsl:stylesheet>
