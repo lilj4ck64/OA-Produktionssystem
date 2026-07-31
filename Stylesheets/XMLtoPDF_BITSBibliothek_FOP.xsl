@@ -20,6 +20,8 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 
 <!-- Übernahme des aktuellen Projektnamens -->
 <xsl:param name="Projektname"/>
+<!-- Absoluter URI des Projektordners; wird vom Go-Buildkern übergeben. -->
+<xsl:param name="Projektpfad"/>
 
 
 <!-- Einbinden der Konfigurationsdatei -->
@@ -1013,7 +1015,7 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 	<xsl:template match="graphic">
 		<fo:block>
 			<fo:external-graphic scaling="uniform"
-								 src="{$Projektname}/Media/Images/{@xlink:href}"
+								 src="{$Projektpfad}/Media/Images/{@xlink:href}"
 								 content-width="scale-to-fit"
 								 content-height="100%"
 								 width="100%"/>
@@ -1043,7 +1045,7 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 	<xsl:template match="inline-graphic">
 		<fo:inline>
 			<fo:external-graphic scaling="uniform"
-								 src="{$Projektname}/Media/Images/{@xlink:href}"
+								 src="{$Projektpfad}/Media/Images/{@xlink:href}"
 								 content-width="auto"
 								 max-width="{$Satzspiegelbreite}"/>
 		</fo:inline>
@@ -1062,7 +1064,7 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 						<fo:table-cell column-number="1" display-align="center">
 							<fo:block>
 								<fo:external-graphic scaling="uniform"
-												     src="{$Projektname}/Media/Images/{@xlink:href}"
+												     src="{$Projektpfad}/Media/Images/{@xlink:href}"
 													 content-width="{$Formelgrafik_Skalierung}"
 													 content-height="auto"/>
 							</fo:block>

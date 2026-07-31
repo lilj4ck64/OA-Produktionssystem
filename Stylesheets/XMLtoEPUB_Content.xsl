@@ -14,7 +14,9 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 
 <xsl:stylesheet version="2.0" 	
 				xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
-				xmlns="http://www.w3.org/1999/xhtml">
+				xmlns="http://www.w3.org/1999/xhtml"
+				xmlns:oa="urn:oa-satzsystem"
+				exclude-result-prefixes="oa">
 
 <xsl:output method="xhtml"
 			encoding="utf-8"/>
@@ -280,11 +282,11 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
                             <xsl:for-each select="//book-part[@book-part-type = 'chapter']">
                                 <li class="toc-h1">
 									<label epub:type="ordinal">
-										<a href="{$Kapitel}_{book-part-meta/title-group/label}{$Contentausgabeformat}#{@id}">
+										<a href="{$Kapitel}_{oa:safe-name(book-part-meta/title-group/label)}{$Contentausgabeformat}#{@id}">
 											<xsl:value-of select="book-part-meta/title-group/label"/>
 										</a>
 									</label>
-									<a href="{$Kapitel}_{book-part-meta/title-group/label}{$Contentausgabeformat}#{@id}">
+									<a href="{$Kapitel}_{oa:safe-name(book-part-meta/title-group/label)}{$Contentausgabeformat}#{@id}">
                                         <xsl:value-of select="book-part-meta/title-group/title"/>   
                                     </a>
                                     
@@ -294,11 +296,11 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 											<ol>
 											<li class="toc-h2">
 												<label epub:type="ordinal">
-													<a href="{$Kapitel}_{../../book-part-meta/title-group/label}{$Contentausgabeformat}#{@id}">
+													<a href="{$Kapitel}_{oa:safe-name(../../book-part-meta/title-group/label)}{$Contentausgabeformat}#{@id}">
 														<xsl:value-of select="label"/>
 													</a>
 												</label>
-												<a href="{$Kapitel}_{../../book-part-meta/title-group/label}{$Contentausgabeformat}#{@id}">
+												<a href="{$Kapitel}_{oa:safe-name(../../book-part-meta/title-group/label)}{$Contentausgabeformat}#{@id}">
 													<xsl:value-of select="title"/>   
 												</a>
 												
@@ -308,11 +310,11 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 														<ol>
 														<li class="toc-h3">
 															<label epub:type="ordinal">
-																<a href="{$Kapitel}_{../../../book-part-meta/title-group/label}{$Contentausgabeformat}#{@id}">
+																<a href="{$Kapitel}_{oa:safe-name(../../../book-part-meta/title-group/label)}{$Contentausgabeformat}#{@id}">
 																	<xsl:value-of select="label"/>
 																</a>
 															</label>
-															<a href="{$Kapitel}_{../../../book-part-meta/title-group/label}{$Contentausgabeformat}#{@id}">
+															<a href="{$Kapitel}_{oa:safe-name(../../../book-part-meta/title-group/label)}{$Contentausgabeformat}#{@id}">
 																<xsl:value-of select="title"/>   
 															</a>
 														</li>
@@ -336,11 +338,11 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
                             <xsl:for-each select="//book-back/book-app-group/book-app">
                                 <li class="toc-h1">
 									<label>
-										<a href="{$Anhang}_{@id}{$Contentausgabeformat}">
+										<a href="{$Anhang}_{oa:safe-name(@id)}{$Contentausgabeformat}">
 											<xsl:value-of select="book-part-meta/title-group/label"/>
 										</a>
 									</label>
-									<a href="{$Anhang}_{@id}{$Contentausgabeformat}">
+									<a href="{$Anhang}_{oa:safe-name(@id)}{$Contentausgabeformat}">
                                         <xsl:value-of select="book-part-meta/title-group/title"/>
                                     </a>
                                 </li>
@@ -371,7 +373,7 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
                                 <xsl:variable name="Label_Aufruf">
                                     <xsl:value-of select="ancestor::book-part[@book-part-type='chapter']/book-part-meta/title-group/label"/>
                                 </xsl:variable>
-                                <a href="{$Kapitel}_{$Label_Aufruf}{$Contentausgabeformat}#{@id}">
+                                <a href="{$Kapitel}_{oa:safe-name($Label_Aufruf)}{$Contentausgabeformat}#{@id}">
                                     <xsl:value-of select="label"/>
                                 </a>
                             </td>
@@ -406,7 +408,7 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
                                     <xsl:variable name="Label_Aufruf">
                                         <xsl:value-of select="ancestor::book-part[@book-part-type='chapter']/book-part-meta/title-group/label"/>
                                     </xsl:variable>
-                                    <a href="{$Kapitel}_{$Label_Aufruf}{$Contentausgabeformat}#{@id}">
+                                    <a href="{$Kapitel}_{oa:safe-name($Label_Aufruf)}{$Contentausgabeformat}#{@id}">
                                         <xsl:value-of select="label"/>
                                     </a>
                                 </td>
@@ -495,7 +497,7 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
         
 	<!--  Literaturverzeichnis separieren -->
         <xsl:for-each select="//book-back/ref-list">
-			<xsl:result-document href="{$EPUB_Content_Pfad}{$Literaturverzeichnis}{$Contentausgabeformat}/">
+			<xsl:result-document href="{$EPUB_Content_Pfad}/{$Literaturverzeichnis}{$Contentausgabeformat}">
 				<html 	xmlns="http://www.w3.org/1999/xhtml" xml:lang="en"
 						xmlns:epub="http://www.idpf.org/2007/ops"
 						xmlns:xlink="http://www.w3.org/1999/xlink"
@@ -528,7 +530,7 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
         
 	<!--  Kapitel erster Ordnung separieren-->
         <xsl:for-each select="//book-part[@book-part-type = 'chapter']">
-			<xsl:result-document href="{$EPUB_Content_Pfad}/{$Kapitel}_{book-part-meta/title-group/label}{$Contentausgabeformat}">	
+			<xsl:result-document href="{$EPUB_Content_Pfad}/{$Kapitel}_{oa:safe-name(book-part-meta/title-group/label)}{$Contentausgabeformat}">
 				<html 	xmlns="http://www.w3.org/1999/xhtml" xml:lang="en"
 						xmlns:epub="http://www.idpf.org/2007/ops"
 						xmlns:xlink="http://www.w3.org/1999/xlink"
@@ -557,7 +559,7 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
         
 	<!--  Anhänge separieren-->
         <xsl:for-each select="//book-back/book-app-group/book-app">
-			<xsl:result-document href="{$EPUB_Content_Pfad}/{$Anhang}_{@id}{$Contentausgabeformat}">
+			<xsl:result-document href="{$EPUB_Content_Pfad}/{$Anhang}_{oa:safe-name(@id)}{$Contentausgabeformat}">
 				<html 	xmlns="http://www.w3.org/1999/xhtml" xml:lang="en"
 						xmlns:epub="http://www.idpf.org/2007/ops"
 						xmlns:xlink="http://www.w3.org/1999/xlink"
@@ -619,4 +621,4 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 		
 </xsl:template> 
 
-</xsl:stylesheet>	
+</xsl:stylesheet>

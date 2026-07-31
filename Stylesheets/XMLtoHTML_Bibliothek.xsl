@@ -16,7 +16,9 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 							  xmlns:xlink="http://www.w3.org/1999/xlink"
 							  xmlns:mml="http://www.w3.org/1998/Math/MathML"
 							  xmlns:epub="http://www.idpf.org/2007/ops"
-							  xmlns="http://www.w3.org/1999/xhtml">
+							  xmlns="http://www.w3.org/1999/xhtml"
+							  xmlns:oa="urn:oa-satzsystem"
+							  exclude-result-prefixes="oa">
 	
 <!-- Templates für die Inhaltsgliederung -->
 	
@@ -618,13 +620,13 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 <xsl:template match="xref">
 <!-- Alle Referenzen anlegen, außer ref-type=aff, für die KEIN Link angelegt wird -->
 	<xsl:choose>
-		<xsl:when test="@ref-type='disp-formula' or
+		<xsl:when test="normalize-space(@rid) != '' and (@ref-type='disp-formula' or
 						@ref-type='bibr' or
 						@ref-type='chapter' or
 						@ref-type='fig' or
 						@ref-type='hyperlink' or
 						@ref-type='app' or
-						@ref-type='table'">
+						@ref-type='table')">
 			<xsl:variable name="uri">
 				<xsl:choose>
 					<xsl:when test="@ref-type='bibr'">
@@ -634,7 +636,7 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 					<xsl:when test="@ref-type='app'">
 						<xsl:value-of select="$Anhang"/>
 						<xsl:text>_</xsl:text>
-						<xsl:value-of select="@rid"/>
+						<xsl:value-of select="oa:safe-name(@rid)"/>
 						<xsl:value-of select="$Contentausgabeformat"/>
 					</xsl:when>
 					<xsl:when test="@ref-type='hyperlink'">
@@ -651,7 +653,7 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 								<xsl:value-of select="//book-part[@book-part-type='chapter'][descendant-or-self::*[@id=$rid]]/book-part-meta/title-group/label"/>
 						</xsl:variable>
 						<xsl:text>Kapitel_</xsl:text>
-						<xsl:value-of select="$aktueller_book_part"/>
+						<xsl:value-of select="oa:safe-name($aktueller_book_part)"/>
 						<xsl:value-of select="$Contentausgabeformat"/>	
 					</xsl:otherwise>
 				</xsl:choose>
@@ -667,11 +669,7 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 			</a>
 		</xsl:when>
 		<xsl:otherwise>
-			<xsl:call-template name="debug">
-				<xsl:with-param name="debug-template">xref</xsl:with-param>
-				<xsl:with-param name="debug-level">1</xsl:with-param>
-				<xsl:with-param name="debug-text">unbekannter Referenztyp: [<xsl:value-of select="@ref-type"/>]</xsl:with-param>
-			</xsl:call-template>
+			<xsl:apply-templates/>
 		</xsl:otherwise>
 	</xsl:choose>
 </xsl:template>
@@ -928,11 +926,16 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 </xsl:template>
 	
 <xsl:template match="fn">
-	<a epub:type="noteref" href="#{@id}">
-		<sup>
-			<xsl:value-of select="@symbol"/>
-		</sup>
-	</a>
+	<xsl:choose>
+		<xsl:when test="normalize-space(@id) != ''">
+			<a epub:type="noteref" href="#{@id}">
+				<sup><xsl:value-of select="@symbol"/></sup>
+			</a>
+		</xsl:when>
+		<xsl:otherwise>
+			<sup><xsl:value-of select="@symbol"/></sup>
+		</xsl:otherwise>
+	</xsl:choose>
 </xsl:template>
 	
 <!-- Bibliografie -->

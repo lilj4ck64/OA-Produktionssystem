@@ -15,7 +15,9 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 <xsl:stylesheet version="2.0" 
 				xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
 				xmlns:xlink="http://www.w3.org/1999/xlink"
-				xmlns="http://www.w3.org/1999/xhtml">
+				xmlns="http://www.w3.org/1999/xhtml"
+				xmlns:oa="urn:oa-satzsystem"
+				exclude-result-prefixes="oa">
 
 <xsl:output method="xhtml"
 			encoding="utf-8"/>
@@ -62,7 +64,7 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 						<!-- Kapitel erster Ordnung anlegen -->
 						<xsl:for-each select="//book-part[@book-part-type = 'chapter']">
 							<li>
-								<a href="Content/{$Kapitel}_{book-part-meta/title-group/label}{$Contentausgabeformat}">
+								<a href="Content/{$Kapitel}_{oa:safe-name(book-part-meta/title-group/label)}{$Contentausgabeformat}">
 									<xsl:if test="book-part-meta/title-group/label">
 										<xsl:value-of select="book-part-meta/title-group/label"/>
 										<xsl:text> </xsl:text>
@@ -73,7 +75,7 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 								<xsl:if test="body/sec">
 									<ol>
 										<xsl:for-each select="body/sec">
-											<li><a href="Content/{$Kapitel}_{../../book-part-meta/title-group/label}{$Contentausgabeformat}#{@id}">
+											<li><a href="Content/{$Kapitel}_{oa:safe-name(../../book-part-meta/title-group/label)}{$Contentausgabeformat}#{@id}">
 												<xsl:value-of select="label"/>
 												<xsl:text> </xsl:text>	
 												<xsl:value-of select="title"/>
@@ -83,7 +85,7 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 											<xsl:if test="sec">
 												<ol>
 													<xsl:for-each select="sec">
-														<li><a href="Content/{$Kapitel}_{../../../book-part-meta/title-group/label}{$Contentausgabeformat}#{@id}">
+														<li><a href="Content/{$Kapitel}_{oa:safe-name(../../../book-part-meta/title-group/label)}{$Contentausgabeformat}#{@id}">
 															<xsl:value-of select="label"/>
 															<xsl:text> </xsl:text>	
 															<xsl:value-of select="title"/>
@@ -93,7 +95,7 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 															<xsl:if test="sec">
 																<ol>
 																	<xsl:for-each select="sec">
-																		<li><a href="Content/{$Kapitel}_{../../../../book-part-meta/title-group/label}{$Contentausgabeformat}#{@id}">
+																		<li><a href="Content/{$Kapitel}_{oa:safe-name(../../../../book-part-meta/title-group/label)}{$Contentausgabeformat}#{@id}">
 																			<xsl:value-of select="label"/>
 																			<xsl:text> </xsl:text>	
 																			<xsl:value-of select="title"/>
@@ -123,7 +125,7 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 						<!-- Anhang erster Ordnung anlegen -->
 						<xsl:for-each select="//book-back/book-app-group/book-app">
 							<li>
-								<a href="Content/{$Anhang}_{@id}{$Contentausgabeformat}">
+								<a href="Content/{$Anhang}_{oa:safe-name(@id)}{$Contentausgabeformat}">
 									<xsl:if test="book-part-meta/title-group/label">
 										<xsl:value-of select="book-part-meta/title-group/label"/>
 										<xsl:text> </xsl:text>
@@ -134,7 +136,7 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 								<xsl:if test="body/sec/sec">
 									<ol>
 										<xsl:for-each select="body/sec/sec">
-											<li><a href="Content/{$Anhang}_{../../../@id}{$Contentausgabeformat}#{@id}">
+											<li><a href="Content/{$Anhang}_{oa:safe-name(../../../@id)}{$Contentausgabeformat}#{@id}">
 												<xsl:value-of select="label"/>
 												<xsl:text> </xsl:text>	
 												<xsl:value-of select="title"/></a>
@@ -164,4 +166,4 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 	</xsl:result-document>
 </xsl:template>	
 
-</xsl:stylesheet>	
+</xsl:stylesheet>

@@ -12,7 +12,10 @@ Die Veröffentlichung dieses Programms erfolgt in der Hoffnung, daß es Ihnen vo
 Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Programm erhalten haben. Falls nicht, siehe <http://www.gnu.org/licenses/>. 
 -->
 
-<xsl:stylesheet version="2.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+<xsl:stylesheet version="2.0"
+	xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+	xmlns:oa="urn:oa-satzsystem"
+	exclude-result-prefixes="oa">
 
 <!-- *****************************************************
   Variablen für die HTML- und EPUB-Produktion
@@ -28,55 +31,43 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 <xsl:variable name="Projektname">
 	<xsl:value-of select="$Projekt"/>
 </xsl:variable>
+
+<xsl:function name="oa:safe-name">
+	<xsl:param name="value"/>
+	<xsl:variable name="mapped" select="replace(normalize-space(string($value)), '[^A-Za-z0-9._-]', '_')"/>
+	<xsl:sequence select="if ($mapped = ('', '.', '..')) then 'unnamed' else $mapped"/>
+</xsl:function>
 	
 <!-- *****************************************************
   Pfade für die HTML- und EPUB-Produktion
 ********************************************************* -->
 	
 <xsl:variable name="EPUB_Content_Pfad">
-	<xsl:text>Projekte/</xsl:text>
-	<xsl:value-of select="$Projektname"/>
-	<xsl:text>/Outputs/E-Formate/OEBPS/Content/</xsl:text>
+	<xsl:value-of select="concat($OutputRoot, '/OEBPS/Content')"/>
 </xsl:variable>
 <xsl:variable name="EPUB_Fonts_Pfad">
-	<xsl:text>Projekte/</xsl:text>
-	<xsl:value-of select="$Projektname"/>
-	<xsl:text>/Outputs/E-Formate/OEBPS/Fonts/</xsl:text>
+	<xsl:value-of select="concat($OutputRoot, '/OEBPS/Fonts')"/>
 </xsl:variable>
 <xsl:variable name="EPUB_Styles_Pfad">
-	<xsl:text>Projekte/</xsl:text>
-	<xsl:value-of select="$Projektname"/>
-	<xsl:text>/Outputs/E-Formate/OEBPS/Styles/</xsl:text>
+	<xsl:value-of select="concat($OutputRoot, '/OEBPS/Styles')"/>
 </xsl:variable>
 <xsl:variable name="EPUB_Images_Pfad">
-	<xsl:text>Projekte/</xsl:text>
-	<xsl:value-of select="$Projektname"/>
-	<xsl:text>/Outputs/E-Formate/OEBPS/Images/</xsl:text>
+	<xsl:value-of select="concat($OutputRoot, '/OEBPS/Images')"/>
 </xsl:variable>
 <xsl:variable name="EPUB_Container_XML">
-	<xsl:text>Projekte/</xsl:text>
-	<xsl:value-of select="$Projektname"/>
-	<xsl:text>/Outputs/E-Formate/META-INF/container.xml/</xsl:text>
+	<xsl:value-of select="concat($OutputRoot, '/META-INF/container.xml')"/>
 </xsl:variable>
 <xsl:variable name="EPUB_mimetype">
-	<xsl:text>Projekte/</xsl:text>
-	<xsl:value-of select="$Projektname"/>
-	<xsl:text>/Outputs/E-Formate/mimetype/</xsl:text>
+	<xsl:value-of select="concat($OutputRoot, '/mimetype')"/>
 </xsl:variable>
 <xsl:variable name="EPUB_content">
-	<xsl:text>Projekte/</xsl:text>
-	<xsl:value-of select="$Projektname"/>
-	<xsl:text>/Outputs/E-Formate/OEBPS/content.opf/</xsl:text>
+	<xsl:value-of select="concat($OutputRoot, '/OEBPS/content.opf')"/>
 </xsl:variable>
 <xsl:variable name="EPUB_tocncx">
-	<xsl:text>Projekte/</xsl:text>
-	<xsl:value-of select="$Projektname"/>
-	<xsl:text>/Outputs/E-Formate/OEBPS/toc.ncx/</xsl:text>
+	<xsl:value-of select="concat($OutputRoot, '/OEBPS/toc.ncx')"/>
 </xsl:variable>
 <xsl:variable name="EPUB_navhtml">
-	<xsl:text>Projekte/</xsl:text>
-	<xsl:value-of select="$Projektname"/>
-	<xsl:text>/Outputs/E-Formate/OEBPS/nav.xhtml/</xsl:text>
+	<xsl:value-of select="concat($OutputRoot, '/OEBPS/nav.xhtml')"/>
 </xsl:variable>
 
 <!-- *****************************************************
@@ -113,4 +104,4 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 	<xsl:value-of select="//book-meta/book-id[@book-id-type='doi']"/>
 </xsl:variable>
 
-</xsl:stylesheet>	
+</xsl:stylesheet>

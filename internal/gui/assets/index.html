@@ -1,0 +1,63 @@
+{{define "index"}}
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OA Satzsystem</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main>
+    <header>
+      <p class="eyebrow">Lokale Browser-GUI</p>
+      <h1>OA Satzsystem</h1>
+      <p>Projekt importieren, prüfen und als PDF oder EPUB bauen.</p>
+    </header>
+
+    {{if .Message}}<div class="notice">{{.Message}}</div>{{end}}
+    {{if .Error}}<div class="notice error">{{.Error}}</div>{{end}}
+
+    <section class="card">
+      <h2>Projekt importieren</h2>
+      <form action="/import" method="post" enctype="multipart/form-data" id="upload-form">
+        <label class="dropzone" id="dropzone">
+          <strong>Projekt-ZIP hier ablegen</strong>
+          <span>oder Datei auswählen</span>
+          <input type="file" name="project" accept=".zip,application/zip" required>
+        </label>
+        <button type="submit">Importieren</button>
+      </form>
+    </section>
+
+    <section class="card">
+      <h2>Importierte Projekte</h2>
+      {{if .Projects}}
+      <div class="projects">
+        {{range .Projects}}
+        <article>
+          <h3>{{.Name}}</h3>
+          <p>{{.Path}}</p>
+          <form action="/build" method="post">
+            <input type="hidden" name="project" value="{{.Name}}">
+            <fieldset>
+              <legend>Ausgabeformate</legend>
+              <label><input type="checkbox" name="format" value="print-pdf" checked> Print-PDF</label>
+              <label><input type="checkbox" name="format" value="web-pdf"> Web-PDF</label>
+              <label><input type="checkbox" name="format" value="epub"> EPUB</label>
+            </fieldset>
+            <div class="actions">
+              <a class="button secondary" href="/validate?project={{.URLName}}">Prüfen</a>
+              <button type="submit">Bauen</button>
+            </div>
+          </form>
+        </article>
+        {{end}}
+      </div>
+      {{else}}<p>Noch kein Projekt importiert.</p>{{end}}
+    </section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>
+{{end}}
