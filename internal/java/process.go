@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os/exec"
 	"time"
+	"unicode/utf8"
 )
 
 // Result records all observable data from a Java process.
@@ -37,8 +38,8 @@ func (r Runner) Run(ctx context.Context, dir string, args ...string) (Result, er
 	started := time.Now()
 	err := cmd.Run()
 	result := Result{
-		Stdout:   stdout.String(),
-		Stderr:   stderr.String(),
+		Stdout:   decodeToolOutput(stdout.Bytes()),
+		Stderr:   decodeToolOutput(stderr.Bytes()),
 		ExitCode: -1,
 		Duration: time.Since(started),
 	}
@@ -56,4 +57,31 @@ func (r Runner) Run(ctx context.Context, dir string, args ...string) (Result, er
 		return result, err
 	}
 	return result, nil
+}
+
+// decodeToolOutput keeps the Java tool boundary UTF-8 clean. The bundled
+// tools normally emit UTF-8, but a JVM using the Windows system code page can
+// write Windows-1252 instead (for example 0xfc for „ü“). Converting that byte
+// directly to a Go string produces the replacement character in job logs.
+func decodeToolOutput(data []byte) string {
+	if utf8.Valid(data) {
+		return string(data)
+	}
+
+	runes := make([]rune, 0, len(data))
+	for _, b := range data {
+		if b < 0x80 || b >= 0xa0 {
+			runes = append(runes, rune(b))
+			continue
+		}
+		runes = append(runes, windows1252Control[b-0x80])
+	}
+	return string(runes)
+}
+
+var windows1252Control = [...]rune{
+	'€', '', '‚', 'ƒ', '„', '…', '†', '‡',
+	'ˆ', '‰', 'Š', '‹', 'Œ', '', 'Ž', '',
+	'', '‘', '’', '“', '”', '•', '–', '—',
+	'˜', '™', 'š', '›', 'œ', '', 'ž', 'Ÿ',
 }

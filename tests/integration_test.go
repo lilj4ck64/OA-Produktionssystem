@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -28,6 +29,10 @@ func TestMusterbuchFullBuild(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
+	var toolLogs []string
+	ctx = buildpkg.WithLogger(ctx, func(message string) {
+		toolLogs = append(toolLogs, message)
+	})
 	engine := buildpkg.Engine{Root: root, OutputDir: outputDir}
 	if executable := os.Getenv("OA_JAVA"); executable != "" {
 		engine.Java = javapkg.Runner{Executable: executable}
@@ -39,6 +44,12 @@ func TestMusterbuchFullBuild(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("vollständiger Musterbuch-Build: %v", err)
+	}
+	joinedLogs := strings.Join(toolLogs, "\n")
+	for _, expected := range []string{"Saxon: erfolgreich", "FOP: erfolgreich", "EPUBCheck: erfolgreich"} {
+		if !strings.Contains(joinedLogs, expected) {
+			t.Errorf("Werkzeugmeldung %q fehlt in:\n%s", expected, joinedLogs)
+		}
 	}
 
 	byFormat := make(map[buildpkg.Format]buildpkg.Artifact, len(artifacts))

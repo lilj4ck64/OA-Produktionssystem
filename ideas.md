@@ -432,6 +432,45 @@ Datenbank und benötigt keine Anmeldung.
 Die HTML-, CSS- und JavaScript-Dateien werden mit Go eingebettet:
 [Go embed](https://pkg.go.dev/embed).
 
+### Späterer nativer GUI-Starter
+
+Für das MVP bleibt `oa` beziehungsweise `oa.exe` ein klassisches
+Kommandozeilenprogramm. Die lokale Browser-GUI wird bewusst mit `oa gui`
+gestartet; ein Aufruf ohne Argumente zeigt weiterhin die Hilfe an.
+
+Nach dem MVP kann insbesondere das Windows-Paket zwei getrennte
+Einstiegspunkte anbieten:
+
+```text
+oa.exe             CLI für Terminal und Automatisierung
+OA-Satzsystem.exe  GUI-Starter für den Doppelklick
+```
+
+Der GUI-Starter soll ohne sichtbares Konsolenfenster direkt dieselbe lokale
+Browser-GUI öffnen. Beide Programme müssen denselben Go-Code, Build-Service
+und dieselben gebündelten Ressourcen verwenden. Ein eigener Starter ist einer
+Umdeutung von `oa` ohne Argumente vorzuziehen: Das CLI-Verhalten bleibt damit
+vorhersagbar, Skripte öffnen nicht versehentlich einen Browser und normale
+Windows-Nutzer erhalten trotzdem einen erwartbaren Doppelklick-Start.
+
+Für Linux und macOS können später passende Desktop-Starter oder App-Bundles
+ergänzt werden. Diese Komfortschicht ist ausdrücklich kein Bestandteil des
+MVP.
+
+Die ausführbaren Dateien sollen außerdem ein wiedererkennbares
+Anwendungssymbol erhalten. Dafür wird ein zentrales, hochauflösendes
+Quellmotiv gepflegt und beim Packaging in die plattformspezifischen Formate
+überführt:
+
+- Windows: Mehrgrößen-`.ico` für `OA-Satzsystem.exe` und bei Bedarf `oa.exe`,
+- macOS: `.icns` im App-Bundle,
+- Linux: PNG- beziehungsweise SVG-Icon für den Desktop-Eintrag.
+
+Das Icon soll zusammen mit Produktname, Version und Herstellerinformation in
+die jeweiligen ausführbaren Dateien beziehungsweise App-Metadaten eingebettet
+werden. Die CLI darf dabei weiterhin als Terminalwerkzeug erkennbar bleiben;
+der grafische Starter erhält die deutlich sichtbare Produktidentität.
+
 ## Servermodus
 
 Der Servermodus soll für wenige Nutzer bewusst klein bleiben.

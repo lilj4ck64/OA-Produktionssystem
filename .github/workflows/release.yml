@@ -10,9 +10,38 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+
 jobs:
+  validate:
+    name: Test and determine version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Test Go code
+        run: go test ./...
+      - name: Determine version
+        id: version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version="${GITHUB_REF_NAME}"
+          else
+            version="0.1.0-dev"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
   package:
     name: ${{ matrix.name }}
+    needs: validate
     strategy:
       fail-fast: false
       matrix:
@@ -24,6 +53,7 @@ jobs:
             platform: windows-x64
             archive: zip
             extension: zip
+            gui_binary: OA-Satzsystem.exe
           - name: Linux x64
             os: ubuntu-latest
             goos: linux
@@ -31,6 +61,7 @@ jobs:
             platform: linux-x64
             archive: tar
             extension: tar.gz
+            gui_binary: OA-Satzsystem
           - name: macOS ARM64
             os: macos-15
             goos: darwin
@@ -38,6 +69,7 @@ jobs:
             platform: macos-arm64
             archive: tar
             extension: tar.gz
+            gui_binary: OA-Satzsystem
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -50,49 +82,42 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: gradle
-      - name: Test Go code
-        run: go test ./...
       - name: Build Java libraries and minimal runtime
         shell: bash
         run: |
-          bash java-toolchain/gradlew -p java-toolchain syncRuntimeLibs writeRuntimeManifest jlinkRuntime
-      - name: Determine version
-        id: version
-        shell: bash
-        run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            version="${GITHUB_REF_NAME}"
-          else
-            version="0.1.0-dev"
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+          bash java-toolchain/gradlew -p java-toolchain syncRuntimeLibs jlinkRuntime
       - name: Assemble package
         shell: bash
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.validate.outputs.version }}
           PLATFORM: ${{ matrix.platform }}
         run: |
           package="oa-satzsystem-${VERSION}-${PLATFORM}"
-          mkdir -p "dist/$package/resources" "dist/$package/licenses"
+          mkdir -p "dist/$package/resources"
           binary="oa"
           if [[ "$GOOS" == "windows" ]]; then binary="oa.exe"; fi
           go build -trimpath -ldflags="-s -w -X main.version=$VERSION" -o "dist/$package/$binary" ./cmd/oa
+          gui_binary="${{ matrix.gui_binary }}"
+          gui_ldflags="-s -w -X main.version=$VERSION -X main.defaultCommand=gui"
+          if [[ "$GOOS" == "windows" ]]; then
+            gui_ldflags="$gui_ldflags -H windowsgui"
+          fi
+          go build -trimpath -ldflags="$gui_ldflags" -o "dist/$package/$gui_binary" ./cmd/oa
           cp -R java-toolchain/build/stage/lib "dist/$package/lib"
           cp -R java-toolchain/build/stage/runtime "dist/$package/runtime"
           cp -R Stylesheets Shared "dist/$package/resources/"
-          cp 01_LICENSE "dist/$package/licenses/GPL-3.0.txt"
-          cp java-toolchain/licenses/THIRD-PARTY-NOTICES.md "dist/$package/licenses/"
-          cp java-toolchain/build/stage/licenses/runtime-components.txt "dist/$package/licenses/"
           cp README.md "dist/$package/"
           echo "PACKAGE=$package" >> "$GITHUB_ENV"
           echo "BINARY=$binary" >> "$GITHUB_ENV"
+          echo "GUI_BINARY=$gui_binary" >> "$GITHUB_ENV"
       - name: Smoke-test packaged CLI with bundled Java
         shell: bash
         run: |
           chmod +x "dist/$PACKAGE/$BINARY"
+          chmod +x "dist/$PACKAGE/$GUI_BINARY"
           "dist/$PACKAGE/$BINARY" doctor
           "dist/$PACKAGE/$BINARY" build Projekte/Musterbuch \
             --format print-pdf --format web-pdf --format epub \
@@ -111,7 +136,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.platform }}
-          path: dist/oa-satzsystem-${{ steps.version.outputs.version }}-${{ matrix.platform }}.${{ matrix.extension }}
+          path: dist/oa-satzsystem-${{ needs.validate.outputs.version }}-${{ matrix.platform }}.${{ matrix.extension }}
           if-no-files-found: error
 
   checksums:

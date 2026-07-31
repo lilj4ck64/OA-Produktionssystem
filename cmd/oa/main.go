@@ -2,6 +2,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -14,6 +15,8 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/term"
+
 	"oa-satzsystem/internal/build"
 	"oa-satzsystem/internal/gui"
 	"oa-satzsystem/internal/project"
@@ -23,6 +26,11 @@ import (
 // -ldflags "-X main.version=v0.1.0".
 var version = "0.1.0-dev"
 
+// defaultCommand is set only for the separately packaged GUI launcher. The
+// regular oa binary keeps its command-line behavior, while the launcher can
+// start the same application code without requiring users to type `oa gui`.
+var defaultCommand string
+
 const (
 	exitOK         = 0
 	exitFailure    = 1
@@ -31,9 +39,19 @@ const (
 )
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	os.Exit(run(startupArgs(os.Args[1:]), os.Stdout, os.Stderr))
 }
 
+func startupArgs(args []string) []string {
+	if defaultCommand == "" {
+		return args
+	}
+	return append([]string{defaultCommand}, args...)
+}
+
+// run is the application's traffic controller. It reads the first word after
+// "oa", sends the remaining words to the matching command, and returns a
+// stable exit code that scripts can understand.
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		printUsage(stderr)
@@ -60,6 +78,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runValidate(args[1:], stdout, stderr)
 	case "gui":
 		return runGUI(args[1:], stdout, stderr)
+	case "serve":
+		return runServe(args[1:], stdout, stderr)
+	case "admin":
+		return runAdmin(args[1:], stdout, stderr)
 	case "-h", "--help", "help":
 		printUsage(stdout)
 		return exitOK
@@ -79,8 +101,159 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  validate <Projekt>")
 	fmt.Fprintln(w, "  build <Projekt> --format FORMAT [--format FORMAT ...] [--output ORDNER]")
 	fmt.Fprintln(w, "  gui [--workspace ORDNER]  Lokale Browser-GUI starten")
+	fmt.Fprintln(w, "  serve --data-dir ORDNER [--listen ADRESSE]  Persistenten Server starten")
+	fmt.Fprintln(w, "  admin init --data-dir ORDNER --username NAME  Initialen Administrator anlegen")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Formate: print-pdf, web-pdf, epub")
+}
+
+func runAdmin(args []string, stdout, stderr io.Writer) int {
+	dataDir, username, err := parseAdminInitArgs(args)
+	if err != nil {
+		fmt.Fprintf(stderr, "Ungültiger Aufruf: %v\n", err)
+		fmt.Fprintln(stderr, "Verwendung: oa admin init --data-dir ORDNER --username NAME")
+		return exitUsage
+	}
+	password, err := promptNewPassword(stderr)
+	if err != nil {
+		fmt.Fprintf(stderr, "Passwort konnte nicht gelesen werden: %v\n", err)
+		return exitFailure
+	}
+	if err := gui.CreateInitialAdmin(dataDir, username, password); err != nil {
+		fmt.Fprintf(stderr, "Administrator konnte nicht angelegt werden: %v\n", err)
+		return exitFailure
+	}
+	fmt.Fprintf(stdout, "Initialer Administrator %q wurde angelegt.\n", username)
+	return exitOK
+}
+
+// parseAdminInitArgs separates command-line options from their values without
+// starting the server or changing any data. Keeping parsing separate makes bad
+// invocations easy to test safely.
+func parseAdminInitArgs(args []string) (dataDir, username string, err error) {
+	if len(args) == 0 || args[0] != "init" {
+		return "", "", fmt.Errorf("Unterbefehl init fehlt")
+	}
+	for i := 1; i < len(args); i++ {
+		key, value := args[i], ""
+		if strings.Contains(key, "=") {
+			parts := strings.SplitN(key, "=", 2)
+			key, value = parts[0], parts[1]
+		} else if key == "--data-dir" || key == "--username" {
+			if i+1 >= len(args) {
+				return "", "", fmt.Errorf("Wert nach %s fehlt", key)
+			}
+			i++
+			value = args[i]
+		}
+		switch key {
+		case "--data-dir":
+			absolute, pathErr := filepath.Abs(value)
+			if pathErr != nil {
+				return "", "", pathErr
+			}
+			dataDir = filepath.Clean(absolute)
+		case "--username":
+			username = strings.TrimSpace(value)
+		default:
+			return "", "", fmt.Errorf("unbekannte Option %q", key)
+		}
+	}
+	if dataDir == "" || username == "" {
+		return "", "", fmt.Errorf("--data-dir und --username sind erforderlich")
+	}
+	return dataDir, username, nil
+}
+
+func promptNewPassword(stderr io.Writer) (string, error) {
+	fmt.Fprint(stderr, "Passwort (mindestens 12 Zeichen): ")
+	if term.IsTerminal(int(os.Stdin.Fd())) {
+		first, err := term.ReadPassword(int(os.Stdin.Fd()))
+		fmt.Fprintln(stderr)
+		if err != nil {
+			return "", err
+		}
+		fmt.Fprint(stderr, "Passwort wiederholen: ")
+		second, err := term.ReadPassword(int(os.Stdin.Fd()))
+		fmt.Fprintln(stderr)
+		if err != nil {
+			return "", err
+		}
+		if string(first) != string(second) {
+			return "", fmt.Errorf("Passwörter stimmen nicht überein")
+		}
+		return string(first), nil
+	}
+	scanner := bufio.NewScanner(os.Stdin)
+	if !scanner.Scan() {
+		return "", fmt.Errorf("Passwort fehlt")
+	}
+	return scanner.Text(), scanner.Err()
+}
+
+// runServe starts the persistent, login-protected multi-user mode and keeps it
+// alive until the operating system asks the program to stop.
+func runServe(args []string, stdout, stderr io.Writer) int {
+	dataDir, address, err := parseServeArgs(args)
+	if err != nil {
+		fmt.Fprintf(stderr, "Ungültiger Aufruf: %v\n", err)
+		fmt.Fprintln(stderr, "Verwendung: oa serve --data-dir ORDNER [--listen 127.0.0.1:8080]")
+		return exitUsage
+	}
+	root, err := findApplicationRoot()
+	if err != nil {
+		fmt.Fprintf(stderr, "Anwendungsressourcen nicht gefunden: %v\n", err)
+		return exitFailure
+	}
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	if err := gui.RunServer(ctx, root, dataDir, address, stdout); err != nil {
+		fmt.Fprintf(stderr, "Server fehlgeschlagen: %v\n", err)
+		return exitFailure
+	}
+	return exitOK
+}
+
+func parseServeArgs(args []string) (dataDir, address string, err error) {
+	address = "127.0.0.1:8080"
+	for i := 0; i < len(args); i++ {
+		key, value := args[i], ""
+		if strings.Contains(key, "=") {
+			parts := strings.SplitN(key, "=", 2)
+			key, value = parts[0], parts[1]
+		} else if key == "--data-dir" || key == "--listen" {
+			if i+1 >= len(args) {
+				return "", "", fmt.Errorf("Wert nach %s fehlt", key)
+			}
+			i++
+			value = args[i]
+		}
+		switch key {
+		case "--data-dir":
+			if dataDir != "" {
+				return "", "", fmt.Errorf("--data-dir darf nur einmal angegeben werden")
+			}
+			if strings.TrimSpace(value) == "" {
+				return "", "", fmt.Errorf("Datenverzeichnis fehlt")
+			}
+			absolute, pathErr := filepath.Abs(value)
+			if pathErr != nil {
+				return "", "", fmt.Errorf("Datenverzeichnis auflösen: %w", pathErr)
+			}
+			dataDir = filepath.Clean(absolute)
+		case "--listen":
+			if strings.TrimSpace(value) == "" {
+				return "", "", fmt.Errorf("Serveradresse fehlt")
+			}
+			address = value
+		default:
+			return "", "", fmt.Errorf("unbekannte Option %q", key)
+		}
+	}
+	if dataDir == "" {
+		return "", "", fmt.Errorf("--data-dir ist erforderlich")
+	}
+	return dataDir, address, nil
 }
 
 func runGUI(args []string, stdout, stderr io.Writer) int {
@@ -167,6 +340,8 @@ func runBuild(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
+// parseBuildArgs accepts options before or after the project path and rejects
+// ambiguous input before an expensive Java build can begin.
 func parseBuildArgs(args []string) (string, []build.Format, string, error) {
 	var projectPath, outputDir string
 	outputSet := false
@@ -239,6 +414,8 @@ func runValidate(args []string, stdout, stderr io.Writer) int {
 }
 
 func findApplicationRoot() (string, error) {
+	// Development files live in the repository; release files live next to the
+	// executable. Walking upward supports starting oa from a subdirectory too.
 	var candidates []string
 	if executable, err := os.Executable(); err == nil {
 		candidates = append(candidates, filepath.Dir(executable))

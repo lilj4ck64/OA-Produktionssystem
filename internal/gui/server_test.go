@@ -27,6 +27,7 @@ func TestHomeAndEmbeddedAssets(t *testing.T) {
 		path, contains string
 	}{
 		{"/", "Projekt importieren"},
+		{"/", "Projektordner auswählen"},
 		{"/static/style.css", ".dropzone"},
 		{"/static/app.js", "dragenter"},
 	} {
@@ -40,6 +41,91 @@ func TestHomeAndEmbeddedAssets(t *testing.T) {
 			t.Fatalf("GET %s did not contain %q", test.path, test.contains)
 		}
 	}
+}
+
+func TestLocalGUIRejectsForeignHostAndOrigin(t *testing.T) {
+	server, err := New(t.TempDir(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.localHost = "127.0.0.1:4567"
+	for _, test := range []struct {
+		name, host, origin, fetchSite string
+		want                          int
+	}{
+		{"own host", "127.0.0.1:4567", "http://127.0.0.1:4567", "same-origin", http.StatusOK},
+		{"foreign host", "attacker.example", "http://attacker.example", "same-origin", http.StatusForbidden},
+		{"cross-site request", "127.0.0.1:4567", "https://attacker.example", "cross-site", http.StatusForbidden},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, "/", nil)
+			request.Host = test.host
+			request.Header.Set("Origin", test.origin)
+			request.Header.Set("Sec-Fetch-Site", test.fetchSite)
+			response := httptest.NewRecorder()
+			server.ServeHTTP(response, request)
+			if response.Code != test.want {
+				t.Fatalf("status = %d, want %d", response.Code, test.want)
+			}
+		})
+	}
+}
+
+func TestImportFolderHandlerAndTraversalProtection(t *testing.T) {
+	workspace := t.TempDir()
+	server, err := New(t.TempDir(), workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	request := folderImportRequest(t, []string{
+		"Buch/Strukturierte_Daten/Buch.xml",
+		"Buch/Media/Images/cover.jpg",
+	}, []string{"<book/>", "image"})
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"project":"Buch"`) {
+		t.Fatalf("folder import = %d: %s", response.Code, response.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(workspace, "projects", "Buch", "Strukturierte_Daten", "Buch.xml")); err != nil {
+		t.Fatal(err)
+	}
+
+	badServer, err := New(t.TempDir(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	badRequest := folderImportRequest(t, []string{"../escape.txt"}, []string{"no"})
+	badResponse := httptest.NewRecorder()
+	badServer.ServeHTTP(badResponse, badRequest)
+	if badResponse.Code != http.StatusBadRequest || !strings.Contains(badResponse.Body.String(), "unsicherer Ordnerpfad") {
+		t.Fatalf("traversal folder import = %d: %s", badResponse.Code, badResponse.Body.String())
+	}
+}
+
+func folderImportRequest(t *testing.T, paths, contents []string) *http.Request {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	for index, path := range paths {
+		if err := writer.WriteField("paths", path); err != nil {
+			t.Fatal(err)
+		}
+		part, err := writer.CreateFormFile("files", filepath.Base(path))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := io.WriteString(part, contents[index]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/import-folder", &body)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	request.Header.Set("Accept", "application/json")
+	return request
 }
 
 func TestImportZIPAndRejectTraversal(t *testing.T) {
@@ -113,7 +199,8 @@ func TestBuildJobUsesSharedBuildFunction(t *testing.T) {
 		t.Fatal(err)
 	}
 	called := make(chan []build.Format, 1)
-	server.build = func(_ context.Context, path string, formats []build.Format) ([]build.Artifact, error) {
+	server.build = func(ctx context.Context, path string, formats []build.Format) ([]build.Artifact, error) {
+		build.Log(ctx, "EPUBCheck: erfolgreich.")
 		called <- formats
 		output := filepath.Join(path, "Outputs", "Buch-print.pdf")
 		if err := os.MkdirAll(filepath.Dir(output), 0o755); err != nil {
@@ -164,7 +251,8 @@ func TestBuildJobUsesSharedBuildFunction(t *testing.T) {
 	apiResponse := httptest.NewRecorder()
 	server.ServeHTTP(apiResponse, httptest.NewRequest(http.MethodGet, "/api/jobs/"+id, nil))
 	if !strings.Contains(apiResponse.Body.String(), `"status":"fertig"`) ||
-		!strings.Contains(apiResponse.Body.String(), "/artifacts/Buch/Buch-print.pdf") {
+		!strings.Contains(apiResponse.Body.String(), "/artifacts/Buch/Buch-print.pdf") ||
+		!strings.Contains(apiResponse.Body.String(), "EPUBCheck: erfolgreich.") {
 		t.Fatalf("unexpected job JSON: %s", apiResponse.Body.String())
 	}
 }

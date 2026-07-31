@@ -6,14 +6,14 @@ versions. A full JDK is currently required.
 On Linux or macOS:
 
 ```sh
-./gradlew syncRuntimeLibs writeRuntimeManifest jlinkRuntime
+./gradlew syncRuntimeLibs jlinkRuntime
 ./gradlew verifyToolVersions
 ```
 
 On Windows:
 
 ```powershell
-.\gradlew.bat syncRuntimeLibs writeRuntimeManifest jlinkRuntime
+.\gradlew.bat syncRuntimeLibs jlinkRuntime
 .\gradlew.bat verifyToolVersions
 ```
 

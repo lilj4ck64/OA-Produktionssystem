@@ -26,6 +26,9 @@ func prepareXML(source, destination string) error {
 }
 
 func neutralizeDOCTYPE(content []byte) ([]byte, error) {
+	// The small scanner below understands quoted text and the bracketed internal
+	// part of a DOCTYPE. A simple search for the next '>' would cut valid XML at
+	// the wrong place.
 	token := []byte("<!DOCTYPE")
 	searchFrom := 0
 	start := -1

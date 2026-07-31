@@ -23,6 +23,23 @@ func TestVersion(t *testing.T) {
 	}
 }
 
+func TestStartupArgs(t *testing.T) {
+	previous := defaultCommand
+	t.Cleanup(func() { defaultCommand = previous })
+
+	defaultCommand = ""
+	if got := startupArgs([]string{"doctor"}); len(got) != 1 || got[0] != "doctor" {
+		t.Fatalf("regular CLI startup args = %v", got)
+	}
+
+	defaultCommand = "gui"
+	got := startupArgs([]string{"--workspace", "gui-data"})
+	want := []string{"gui", "--workspace", "gui-data"}
+	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("GUI launcher startup args = %v, want %v", got, want)
+	}
+}
+
 func TestParseBuildArgsAllFormatsAndOutput(t *testing.T) {
 	projectPath, formats, output, err := parseBuildArgs([]string{
 		"--format", "print-pdf",
@@ -116,5 +133,32 @@ func TestParseGUIArgs(t *testing.T) {
 	}
 	if !persistent || !filepath.IsAbs(workspace) || filepath.Base(workspace) != "gui-data" {
 		t.Fatalf("persistent workspace = %q, %v", workspace, persistent)
+	}
+}
+
+func TestParseServeArgs(t *testing.T) {
+	dataDir, address, err := parseServeArgs([]string{"--data-dir", "server-data"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !filepath.IsAbs(dataDir) || filepath.Base(dataDir) != "server-data" || address != "127.0.0.1:8080" {
+		t.Fatalf("parseServeArgs() = %q, %q", dataDir, address)
+	}
+	_, _, err = parseServeArgs(nil)
+	if err == nil || !strings.Contains(err.Error(), "--data-dir") {
+		t.Fatalf("missing data dir error = %v", err)
+	}
+}
+
+func TestParseAdminInitArgs(t *testing.T) {
+	dataDir, username, err := parseAdminInitArgs([]string{"init", "--data-dir", "server-data", "--username=admin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !filepath.IsAbs(dataDir) || filepath.Base(dataDir) != "server-data" || username != "admin" {
+		t.Fatalf("parseAdminInitArgs() = %q, %q", dataDir, username)
+	}
+	if _, _, err := parseAdminInitArgs([]string{"init", "--data-dir", "server-data"}); err == nil {
+		t.Fatal("missing username was accepted")
 	}
 }

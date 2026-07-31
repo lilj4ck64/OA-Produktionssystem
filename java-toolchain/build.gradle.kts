@@ -5,7 +5,6 @@ import org.gradle.api.attributes.Category
 import org.gradle.api.attributes.LibraryElements
 import org.gradle.api.attributes.Usage
 import org.gradle.api.attributes.java.TargetJvmEnvironment
-import org.gradle.api.artifacts.component.ModuleComponentIdentifier
 
 plugins {
     base
@@ -46,30 +45,6 @@ val syncRuntimeLibs = tasks.register<Sync>("syncRuntimeLibs") {
     description = "Synchronizes all Java runtime JARs into build/stage/lib."
     from(runtimeLibs)
     into(layout.buildDirectory.dir("stage/lib"))
-}
-
-tasks.register("writeRuntimeManifest") {
-    group = "distribution"
-    description = "Writes the locked runtime component inventory used for license review."
-    val outputFile = layout.buildDirectory.file("stage/licenses/runtime-components.txt")
-    outputs.file(outputFile)
-
-    doLast {
-        val components = runtimeLibs.incoming.resolutionResult.allComponents
-            .mapNotNull { it.id as? ModuleComponentIdentifier }
-            .map { "${it.group}:${it.module}:${it.version}" }
-            .sorted()
-
-        val destination = outputFile.get().asFile
-        destination.parentFile.mkdirs()
-        destination.writeText(
-            buildString {
-                appendLine("Runtime components resolved by Gradle")
-                appendLine("=====================================")
-                components.forEach(::appendLine)
-            },
-        )
-    }
 }
 
 fun registerVersionTask(

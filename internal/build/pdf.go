@@ -108,7 +108,9 @@ func (e Engine) BuildPDFs(ctx context.Context, projectPath string, formats []For
 			"-param", "Projektname", pub.Name,
 			"-param", "Projektpfad", projectURI,
 		}
+		logToolStart(ctx, "FOP", fmt.Sprintf("%s wird erzeugt.", format))
 		result, runErr := e.javaRunner(root).Run(ctx, root, args...)
+		logToolResult(ctx, "FOP", result, runErr)
 		if runErr != nil {
 			diagnostics := strings.TrimSpace(result.Stdout + "\n" + result.Stderr)
 			return nil, fmt.Errorf("FOP für %s fehlgeschlagen (Exitcode %d, Dauer %s): %w\n%s",
@@ -154,7 +156,11 @@ func (e Engine) outputDir(pub project.Project) (string, error) {
 	return filepath.Clean(outputDir), nil
 }
 
-// Build creates all selected output formats.
+// Build creates all selected output formats as one transaction. The individual
+// builders first write into a private staging directory. Only after every
+// requested file has passed its checks are all results copied to Outputs. This
+// matters to users because a failed EPUB build must not leave newly replaced
+// PDFs behind and make a partly updated publication look successful.
 func (e Engine) Build(ctx context.Context, projectPath string, formats []Format) ([]Artifact, error) {
 	if len(formats) == 0 {
 		return nil, fmt.Errorf("mindestens ein Format ist erforderlich")
@@ -176,9 +182,29 @@ func (e Engine) Build(ctx context.Context, projectPath string, formats []Format)
 			return nil, fmt.Errorf("nicht unterstütztes Format: %s", format)
 		}
 	}
+	pub, err := project.Open(projectPath)
+	if err != nil {
+		return nil, err
+	}
+	finalOutputDir, err := e.outputDir(pub)
+	if err != nil {
+		return nil, err
+	}
+
+	// BuildPDFs and BuildEPUB can also be called on their own, so each of them
+	// publishes its result. Pointing a copy of the engine at this temporary
+	// directory turns those publications into harmless staging operations.
+	stagingDir, err := os.MkdirTemp(e.TempParent, "oa-publication-*")
+	if err != nil {
+		return nil, fmt.Errorf("Arbeitsverzeichnis für Gesamtausgabe anlegen: %w", err)
+	}
+	defer os.RemoveAll(stagingDir)
+	stagedEngine := e
+	stagedEngine.OutputDir = stagingDir
+
 	byFormat := make(map[Format]Artifact, len(seen))
 	if len(pdfFormats) > 0 {
-		artifacts, err := e.BuildPDFs(ctx, projectPath, pdfFormats)
+		artifacts, err := stagedEngine.BuildPDFs(ctx, projectPath, pdfFormats)
 		if err != nil {
 			return nil, err
 		}
@@ -187,7 +213,7 @@ func (e Engine) Build(ctx context.Context, projectPath string, formats []Format)
 		}
 	}
 	if wantEPUB {
-		artifacts, err := e.BuildEPUB(ctx, projectPath)
+		artifacts, err := stagedEngine.BuildEPUB(ctx, projectPath)
 		if err != nil {
 			return nil, err
 		}
@@ -195,12 +221,21 @@ func (e Engine) Build(ctx context.Context, projectPath string, formats []Format)
 			byFormat[artifact.Format] = artifact
 		}
 	}
+	pending := make([]pendingArtifact, 0, len(byFormat))
 	result := make([]Artifact, 0, len(byFormat))
 	for _, format := range formats {
 		if artifact, ok := byFormat[format]; ok {
-			result = append(result, artifact)
+			target := filepath.Join(finalOutputDir, filepath.Base(artifact.Path))
+			pending = append(pending, pendingArtifact{format: format, temp: artifact.Path, target: target, size: artifact.Size})
+			result = append(result, Artifact{Format: format, Path: target, Size: artifact.Size})
 			delete(byFormat, format)
 		}
+	}
+	if err := os.MkdirAll(finalOutputDir, 0o755); err != nil {
+		return nil, fmt.Errorf("Zielordner anlegen: %w", err)
+	}
+	if err := publishAll(pending); err != nil {
+		return nil, err
 	}
 	return result, nil
 }
@@ -287,7 +322,15 @@ func publishAll(items []pendingArtifact) error {
 	}
 	for i, item := range items {
 		backup := ""
-		if _, err := os.Stat(item.target); err == nil {
+		// An output name may only replace a normal file. Refusing directories,
+		// links and special files prevents an unexpected filesystem object from
+		// being moved aside or followed during publication.
+		targetInfo, err := os.Lstat(item.target)
+		if err == nil {
+			if !targetInfo.Mode().IsRegular() {
+				rollback()
+				return fmt.Errorf("Ausgabeziel ist keine reguläre Datei: %s", item.target)
+			}
 			reservation, reserveErr := os.CreateTemp(filepath.Dir(item.target), "."+filepath.Base(item.target)+".oa-backup-*")
 			if reserveErr != nil {
 				rollback()

@@ -33,19 +33,22 @@ import (
 //go:embed assets/*
 var assets embed.FS
 
-const maxUploadSize = 256 << 20
-
 type buildFunc func(context.Context, string, []build.Format) ([]build.Artifact, error)
 
-// Server owns the state of one local GUI process.
+// Server owns the state shared by HTTP requests: imported projects, build
+// jobs, templates and (in server mode) the persistent database services.
 type Server struct {
-	root      string
-	workspace string
-	templates *template.Template
-	build     buildFunc
-	mux       *http.ServeMux
-	mu        sync.RWMutex
-	jobs      map[string]*Job
+	root       string
+	workspace  string
+	templates  *template.Template
+	build      buildFunc
+	mux        *http.ServeMux
+	mu         sync.RWMutex
+	jobs       map[string]*Job
+	persistent *persistentState
+	// localHost is set only by oa gui. Requiring this exact loopback host blocks
+	// other websites from reaching the unauthenticated local API via DNS rebinding.
+	localHost string
 }
 
 // Job is the browser-visible state of one asynchronous build.
@@ -56,6 +59,7 @@ type Job struct {
 	Progress  int            `json:"progress"`
 	Logs      []string       `json:"logs"`
 	Artifacts []artifactLink `json:"artifacts"`
+	OwnerID   int64          `json:"-"`
 }
 
 type artifactLink struct {
@@ -95,6 +99,28 @@ func New(root, workspace string) (*Server, error) {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// These headers tell browsers not to guess file types, embed the UI in other
+	// sites, or load scripts from unexpected locations.
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("X-Frame-Options", "DENY")
+	w.Header().Set("Referrer-Policy", "same-origin")
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
+	if s.localHost != "" {
+		if r.Host != s.localHost || strings.EqualFold(r.Header.Get("Sec-Fetch-Site"), "cross-site") {
+			http.Error(w, "Lokaler Zugriff abgelehnt.", http.StatusForbidden)
+			return
+		}
+		if origin := r.Header.Get("Origin"); origin != "" {
+			parsed, err := url.Parse(origin)
+			if err != nil || parsed.Scheme != "http" || parsed.Host != s.localHost {
+				http.Error(w, "Lokaler Zugriff abgelehnt.", http.StatusForbidden)
+				return
+			}
+		}
+	}
+	if s.persistent != nil && !s.authorizeRequest(w, r) {
+		return
+	}
 	s.mux.ServeHTTP(w, r)
 }
 
@@ -105,8 +131,12 @@ func (s *Server) routes() {
 	}
 	static := http.FileServer(http.FS(staticFS))
 	s.mux.Handle("/static/", http.StripPrefix("/static/", static))
+	s.mux.HandleFunc("/login", s.login)
+	s.mux.HandleFunc("/logout", s.logout)
+	s.mux.HandleFunc("/admin/users", s.adminUsers)
 	s.mux.HandleFunc("/", s.home)
 	s.mux.HandleFunc("/import", s.importProject)
+	s.mux.HandleFunc("/import-folder", s.importFolder)
 	s.mux.HandleFunc("/validate", s.validateProject)
 	s.mux.HandleFunc("/build", s.startBuild)
 	s.mux.HandleFunc("/jobs/", s.jobPage)
@@ -119,20 +149,51 @@ func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	projects, err := s.projects()
+	user := requestUser(r)
+	projects, err := s.projects(user)
 	data := struct {
 		Projects []projectView
+		Jobs     []jobView
 		Message  string
 		Error    string
-	}{Projects: projects, Message: r.URL.Query().Get("message")}
+		CSRF     string
+		Username string
+		IsAdmin  bool
+		Local    bool
+	}{Projects: projects, Jobs: s.recentJobs(user), Message: r.URL.Query().Get("message"), CSRF: requestCSRF(r), Local: s.persistent == nil}
+	if user != nil {
+		data.Username, data.IsAdmin = user.Username, user.Role == roleAdmin
+	}
 	if err != nil {
 		data.Error = err.Error()
 	}
 	s.render(w, "index", data)
 }
 
-func (s *Server) projects() ([]projectView, error) {
-	entries, err := os.ReadDir(filepath.Join(s.workspace, "projects"))
+func (s *Server) projects(user *User) ([]projectView, error) {
+	projectsDir := filepath.Join(s.workspace, "projects")
+	if s.persistent != nil {
+		if user == nil {
+			return nil, fmt.Errorf("Anmeldung erforderlich")
+		}
+		rows, err := s.persistent.db.Query(`SELECT name,path FROM projects WHERE owner_id=? ORDER BY name COLLATE NOCASE`, user.ID)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		var result []projectView
+		for rows.Next() {
+			var name, path string
+			if err := rows.Scan(&name, &path); err != nil {
+				return nil, err
+			}
+			if _, err := project.Open(path); err == nil {
+				result = append(result, projectView{Name: name, Path: path, URLName: url.QueryEscape(name)})
+			}
+		}
+		return result, rows.Err()
+	}
+	entries, err := os.ReadDir(projectsDir)
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +202,7 @@ func (s *Server) projects() ([]projectView, error) {
 		if !entry.IsDir() {
 			continue
 		}
-		path := filepath.Join(s.workspace, "projects", entry.Name())
+		path := filepath.Join(projectsDir, entry.Name())
 		if _, err := project.Open(path); err == nil {
 			result = append(result, projectView{Name: entry.Name(), Path: path, URLName: url.QueryEscape(entry.Name())})
 		}
@@ -155,16 +216,135 @@ func (s *Server) importProject(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Nur POST ist erlaubt.", http.StatusMethodNotAllowed)
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
 	file, header, err := r.FormFile("project")
 	if err != nil {
-		s.redirectMessage(w, r, "ZIP-Datei fehlt oder ist zu groß.")
+		s.redirectMessage(w, r, "ZIP-Datei fehlt oder ist ungültig.")
 		return
 	}
 	defer file.Close()
-	name, err := importZIP(file, header, filepath.Join(s.workspace, "projects"))
+	user := requestUser(r)
+	projectsDir := filepath.Join(s.workspace, "projects")
+	if s.persistent != nil {
+		projectsDir = filepath.Join(projectsDir, fmt.Sprint(user.ID))
+		if err := os.MkdirAll(projectsDir, 0o755); err != nil {
+			s.redirectMessage(w, r, "Import fehlgeschlagen: "+err.Error())
+			return
+		}
+	}
+	name, err := importZIP(file, header, projectsDir)
 	if err != nil {
 		s.redirectMessage(w, r, "Import fehlgeschlagen: "+err.Error())
+		return
+	}
+	if err := s.recordProject(user, name, filepath.Join(projectsDir, name)); err != nil {
+		_ = os.RemoveAll(filepath.Join(projectsDir, name))
+		s.redirectMessage(w, r, "Import fehlgeschlagen: "+err.Error())
+		return
+	}
+	s.redirectMessage(w, r, "Projekt "+name+" wurde importiert.")
+}
+
+// importFolder accepts the files selected through the browser's directory
+// picker. It exists only in the loopback GUI; the networked server deliberately
+// keeps the simpler ZIP-only import.
+func (s *Server) importFolder(w http.ResponseWriter, r *http.Request) {
+	if s.persistent != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "Nur POST ist erlaubt.", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		s.folderImportResponse(w, r, "", fmt.Errorf("Ordnerdaten fehlen oder sind ungültig"))
+		return
+	}
+	defer r.MultipartForm.RemoveAll()
+	files := r.MultipartForm.File["files"]
+	paths := r.MultipartForm.Value["paths"]
+	if len(files) == 0 || len(files) != len(paths) {
+		s.folderImportResponse(w, r, "", fmt.Errorf("Ordnerauswahl ist unvollständig"))
+		return
+	}
+	projectsDir := filepath.Join(s.workspace, "projects")
+	stage, err := os.MkdirTemp(projectsDir, ".folder-import-*")
+	if err != nil {
+		s.folderImportResponse(w, r, "", err)
+		return
+	}
+	defer os.RemoveAll(stage)
+	for index, header := range files {
+		relative, pathErr := safeImportPath(paths[index])
+		if pathErr != nil {
+			s.folderImportResponse(w, r, "", pathErr)
+			return
+		}
+		input, openErr := header.Open()
+		if openErr != nil {
+			s.folderImportResponse(w, r, "", openErr)
+			return
+		}
+		target := filepath.Join(stage, relative)
+		if mkdirErr := os.MkdirAll(filepath.Dir(target), 0o755); mkdirErr != nil {
+			input.Close()
+			s.folderImportResponse(w, r, "", mkdirErr)
+			return
+		}
+		output, createErr := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+		if createErr != nil {
+			input.Close()
+			s.folderImportResponse(w, r, "", createErr)
+			return
+		}
+		_, copyErr := io.Copy(output, input)
+		closeOutputErr, closeInputErr := output.Close(), input.Close()
+		if copyErr != nil || closeOutputErr != nil || closeInputErr != nil {
+			if copyErr == nil {
+				copyErr = closeOutputErr
+			}
+			if copyErr == nil {
+				copyErr = closeInputErr
+			}
+			s.folderImportResponse(w, r, "", copyErr)
+			return
+		}
+	}
+	name, err := publishImportedStage(stage, projectsDir)
+	if err == nil {
+		err = s.recordProject(nil, name, filepath.Join(projectsDir, name))
+	}
+	if err != nil {
+		if name != "" {
+			_ = os.RemoveAll(filepath.Join(projectsDir, name))
+		}
+		s.folderImportResponse(w, r, "", err)
+		return
+	}
+	s.folderImportResponse(w, r, name, nil)
+}
+
+func safeImportPath(value string) (string, error) {
+	clean := filepath.Clean(filepath.FromSlash(value))
+	if clean == "." || filepath.IsAbs(clean) || filepath.VolumeName(clean) != "" || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("unsicherer Ordnerpfad %q", value)
+	}
+	return clean, nil
+}
+
+func (s *Server) folderImportResponse(w http.ResponseWriter, r *http.Request, name string, err error) {
+	if strings.Contains(r.Header.Get("Accept"), "application/json") {
+		w.Header().Set("Content-Type", "application/json")
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"project": name})
+		return
+	}
+	if err != nil {
+		s.redirectMessage(w, r, "Ordnerimport fehlgeschlagen: "+err.Error())
 		return
 	}
 	s.redirectMessage(w, r, "Projekt "+name+" wurde importiert.")
@@ -199,7 +379,7 @@ func importZIP(file multipart.File, header *multipart.FileHeader, projectsDir st
 	defer os.RemoveAll(stage)
 	for _, entry := range reader.File {
 		clean := filepath.Clean(filepath.FromSlash(entry.Name))
-		if clean == "." || filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		if clean == "." || filepath.IsAbs(clean) || filepath.VolumeName(clean) != "" || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
 			return "", fmt.Errorf("unsicherer ZIP-Pfad %q", entry.Name)
 		}
 		if entry.Mode()&os.ModeSymlink != 0 {
@@ -238,6 +418,12 @@ func importZIP(file multipart.File, header *multipart.FileHeader, projectsDir st
 			return "", err
 		}
 	}
+	return publishImportedStage(stage, projectsDir)
+}
+
+// publishImportedStage validates the staged directory and moves the one
+// discovered project into the visible workspace only after validation.
+func publishImportedStage(stage, projectsDir string) (string, error) {
 	projectDir, projectName, err := locateImportedProject(stage)
 	if err != nil {
 		return "", err
@@ -300,7 +486,7 @@ func locateImportedProject(stage string) (string, string, error) {
 }
 
 func (s *Server) validateProject(w http.ResponseWriter, r *http.Request) {
-	pub, err := s.openWorkspaceProject(r.URL.Query().Get("project"))
+	pub, err := s.openWorkspaceProject(requestUser(r), r.URL.Query().Get("project"))
 	if err != nil {
 		s.redirectMessage(w, r, "Prüfung fehlgeschlagen: "+err.Error())
 		return
@@ -313,7 +499,8 @@ func (s *Server) startBuild(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Nur POST ist erlaubt.", http.StatusMethodNotAllowed)
 		return
 	}
-	pub, err := s.openWorkspaceProject(r.FormValue("project"))
+	user := requestUser(r)
+	pub, err := s.openWorkspaceProject(user, r.FormValue("project"))
 	if err != nil {
 		s.redirectMessage(w, r, "Build abgelehnt: "+err.Error())
 		return
@@ -333,6 +520,17 @@ func (s *Server) startBuild(w http.ResponseWriter, r *http.Request) {
 	}
 	id := randomID()
 	job := &Job{ID: id, Project: pub.Name, Status: "wartet", Progress: 5, Logs: []string{"Build wurde eingeplant."}}
+	if user != nil {
+		job.OwnerID = user.ID
+	}
+	if s.persistent != nil {
+		if err := s.enqueuePersistent(job, pub.Dir, formats); err != nil {
+			s.redirectMessage(w, r, "Build abgelehnt: "+err.Error())
+			return
+		}
+		http.Redirect(w, r, "/jobs/"+id, http.StatusSeeOther)
+		return
+	}
 	s.mu.Lock()
 	s.jobs[id] = job
 	s.mu.Unlock()
@@ -341,12 +539,19 @@ func (s *Server) startBuild(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) runBuild(job *Job, projectDir string, formats []build.Format) {
+	// Browser requests return immediately; the expensive Java work continues in
+	// the background while the job page polls the small JSON status endpoint.
 	s.updateJob(job.ID, func(item *Job) {
 		item.Status, item.Progress = "läuft", 20
 		item.Logs = append(item.Logs, "Projekt wurde geprüft.", "Buildkern wird gestartet.")
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
+	ctx = build.WithLogger(ctx, func(message string) {
+		s.updateJob(job.ID, func(item *Job) {
+			item.Logs = append(item.Logs, message)
+		})
+	})
 	artifacts, err := s.build(ctx, projectDir, formats)
 	s.updateJob(job.ID, func(item *Job) {
 		if err != nil {
@@ -371,6 +576,9 @@ func (s *Server) updateJob(id string, change func(*Job)) {
 	defer s.mu.Unlock()
 	if job := s.jobs[id]; job != nil {
 		change(job)
+		if s.persistent != nil {
+			_ = s.persistJob(job)
+		}
 	}
 }
 
@@ -383,14 +591,18 @@ func (s *Server) jobPage(w http.ResponseWriter, r *http.Request) {
 		job = &copy
 	}
 	s.mu.RUnlock()
-	if job == nil {
+	if job == nil || !s.mayAccessJob(requestUser(r), job) {
 		http.NotFound(w, r)
 		return
 	}
 	data := struct {
 		ID, Project, Status, Logs string
 		Progress                  int
-	}{job.ID, job.Project, job.Status, strings.Join(job.Logs, "\n"), job.Progress}
+		Username                  string
+	}{ID: job.ID, Project: job.Project, Status: job.Status, Logs: strings.Join(job.Logs, "\n"), Progress: job.Progress}
+	if user := requestUser(r); user != nil {
+		data.Username = user.Username
+	}
 	s.render(w, "job", data)
 }
 
@@ -405,7 +617,7 @@ func (s *Server) jobJSON(w http.ResponseWriter, r *http.Request) {
 		job = &copy
 	}
 	s.mu.RUnlock()
-	if job == nil {
+	if job == nil || !s.mayAccessJob(requestUser(r), job) {
 		http.NotFound(w, r)
 		return
 	}
@@ -415,11 +627,20 @@ func (s *Server) jobJSON(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) artifact(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/artifacts/"), "/")
+	if len(parts) == 3 && parts[0] == "jobs" && s.persistent != nil {
+		path, err := s.persistentArtifact(requestUser(r), parts[1], parts[2])
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		http.ServeFile(w, r, path)
+		return
+	}
 	if len(parts) != 2 {
 		http.NotFound(w, r)
 		return
 	}
-	pub, err := s.openWorkspaceProject(parts[0])
+	pub, err := s.openWorkspaceProject(requestUser(r), parts[0])
 	if err != nil {
 		http.NotFound(w, r)
 		return
@@ -432,12 +653,38 @@ func (s *Server) artifact(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, path)
 }
 
-func (s *Server) openWorkspaceProject(name string) (project.Project, error) {
+func (s *Server) openWorkspaceProject(user *User, name string) (project.Project, error) {
+	// Never trust a project name received from a URL or form. In server mode the
+	// database lookup additionally proves that the signed-in user owns it.
 	if name == "" || filepath.Base(name) != name || name == "." || name == ".." {
 		return project.Project{}, fmt.Errorf("ungültiger Projektname")
 	}
-	path := filepath.Join(s.workspace, "projects", name)
+	projectsDir := filepath.Join(s.workspace, "projects")
+	if s.persistent != nil {
+		if user == nil {
+			return project.Project{}, fmt.Errorf("Anmeldung erforderlich")
+		}
+		var storedPath string
+		if err := s.persistent.db.QueryRow(`SELECT path FROM projects WHERE owner_id=? AND name=?`, user.ID, name).Scan(&storedPath); err != nil {
+			return project.Project{}, fmt.Errorf("Projekt nicht gefunden")
+		}
+		absoluteRoot, _ := filepath.Abs(projectsDir)
+		absolutePath, err := filepath.Abs(storedPath)
+		if err != nil {
+			return project.Project{}, fmt.Errorf("ungültiger Projektpfad")
+		}
+		relative, err := filepath.Rel(absoluteRoot, absolutePath)
+		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			return project.Project{}, fmt.Errorf("ungültiger Projektpfad")
+		}
+		return project.Open(absolutePath)
+	}
+	path := filepath.Join(projectsDir, name)
 	return project.Open(path)
+}
+
+func (s *Server) mayAccessJob(user *User, job *Job) bool {
+	return s.persistent == nil || (user != nil && job.OwnerID == user.ID)
 }
 
 func (s *Server) render(w http.ResponseWriter, name string, data any) {
@@ -471,6 +718,7 @@ func Run(ctx context.Context, root, workspace string, stdout io.Writer) error {
 	}
 	httpServer := &http.Server{Handler: server, ReadHeaderTimeout: 5 * time.Second}
 	address := "http://" + listener.Addr().String()
+	server.localHost = listener.Addr().String()
 	fmt.Fprintf(stdout, "OA-GUI läuft unter %s\nWorkspace: %s\nBeenden mit Strg+C.\n", address, workspace)
 	go func() {
 		<-ctx.Done()

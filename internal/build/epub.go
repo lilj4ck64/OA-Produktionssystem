@@ -63,7 +63,9 @@ func (e Engine) BuildEPUB(ctx context.Context, projectPath string) ([]Artifact, 
 		"Projekt=" + pub.Name,
 		"OutputRoot=" + outputURI,
 	}
+	logToolStart(ctx, "Saxon", "EPUB-Inhalte werden transformiert.")
 	result, runErr := e.javaRunner(root).Run(ctx, root, saxonArgs...)
+	logToolResult(ctx, "Saxon", result, runErr)
 	if runErr != nil {
 		return nil, fmt.Errorf("Saxon-Transformation fehlgeschlagen (Exitcode %d, Dauer %s): %w\n%s",
 			result.ExitCode, result.Duration.Round(time.Millisecond), runErr, strings.TrimSpace(result.Stderr))
@@ -98,11 +100,13 @@ func (e Engine) BuildEPUB(ctx context.Context, projectPath string) ([]Artifact, 
 		return nil, err
 	}
 
+	logToolStart(ctx, "EPUBCheck", "Das gepackte EPUB wird validiert.")
 	checkResult, checkErr := e.javaRunner(root).Run(ctx, root,
 		"-cp", classpath,
 		"com.adobe.epubcheck.tool.Checker",
 		tempEPUB,
 	)
+	logToolResult(ctx, "EPUBCheck", checkResult, checkErr)
 	if checkErr != nil {
 		diagnostics := strings.TrimSpace(checkResult.Stdout + "\n" + checkResult.Stderr)
 		return nil, fmt.Errorf("EPUBCheck fehlgeschlagen (Exitcode %d, Dauer %s): %w\n%s",
@@ -132,6 +136,8 @@ func (e Engine) BuildEPUB(ctx context.Context, projectPath string) ([]Artifact, 
 }
 
 func copyTree(source, target string) error {
+	// Links are rejected instead of followed. That guarantees an EPUB can only
+	// contain the ordinary files visibly stored below the selected source tree.
 	info, err := os.Lstat(source)
 	if err != nil {
 		return err
@@ -191,6 +197,9 @@ func copyFile(source, target string) (returnErr error) {
 }
 
 func createEPUB(root, destination string) (returnErr error) {
+	// EPUB is a ZIP file with extra rules: "mimetype" must be first and stored
+	// without compression, while all remaining entries are sorted so repeated
+	// builds are reproducible.
 	mimetypePath := filepath.Join(root, "mimetype")
 	content, err := os.ReadFile(mimetypePath)
 	if err != nil {

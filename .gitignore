@@ -31,6 +31,9 @@ coverage.*
 *.log
 *.tmp
 
+# Local persistent-server smoke-test data.
+/.server-data*/
+
 Projekte/*
 !Projekte/Musterbuch/
 
@@ -42,3 +45,5 @@ java-toolchain/build/
 
 # Generated publication artifacts are not regular project sources.
 Projekte/*/Outputs/
+
+ideas.md

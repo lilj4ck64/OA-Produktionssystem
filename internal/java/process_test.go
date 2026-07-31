@@ -23,6 +23,20 @@ func TestRunnerCapturesProcessData(t *testing.T) {
 	}
 }
 
+func TestRunnerDecodesWindows1252ProcessData(t *testing.T) {
+	args := []string{"-test.run=TestProcessHelper", "--", "windows-1252"}
+	result, err := (Runner{Executable: os.Args[0]}).Run(context.Background(), t.TempDir(), args...)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.Stdout != "Prüfungen.\n" || result.Stderr != "Größe\n" {
+		t.Fatalf("Run() output = stdout %q, stderr %q", result.Stdout, result.Stderr)
+	}
+	if strings.ContainsRune(result.Stdout+result.Stderr, '�') {
+		t.Fatalf("Run() output contains replacement character: %#v", result)
+	}
+}
+
 func TestRunnerCancellation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
@@ -55,6 +69,10 @@ func TestProcessHelper(t *testing.T) {
 			os.Exit(7)
 		case "sleep":
 			time.Sleep(10 * time.Second)
+			os.Exit(0)
+		case "windows-1252":
+			_, _ = os.Stdout.Write([]byte{'P', 'r', 0xfc, 'f', 'u', 'n', 'g', 'e', 'n', '.', '\n'})
+			_, _ = os.Stderr.Write([]byte{'G', 'r', 0xf6, 0xdf, 'e', '\n'})
 			os.Exit(0)
 		}
 	}

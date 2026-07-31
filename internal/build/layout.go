@@ -12,6 +12,8 @@ type applicationLayout struct {
 	lib       string
 }
 
+// resolveLayout hides the only important directory difference between a
+// developer checkout and an installed release from the rest of the builder.
 func resolveLayout(root string) applicationLayout {
 	// Release archives keep all immutable data beside the executable.
 	packagedResources := filepath.Join(root, "resources")
@@ -28,6 +30,9 @@ func resolveLayout(root string) applicationLayout {
 }
 
 func (e Engine) javaRunner(root string) java.Runner {
+	// A caller-supplied Java executable is useful in tests. Otherwise prefer the
+	// small runtime shipped with the application and fall back to system Java
+	// only while developing from source.
 	if e.Java.Executable != "" {
 		return e.Java
 	}
