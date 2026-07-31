@@ -1,4 +1,6 @@
-# OA bleibt ausschließlich auf Loopback; Nginx übernimmt öffentliches HTTPS.
+# OA bleibt auf Loopback; Nginx übernimmt HTTPS und Zugangsschutz.
+# Passwortdatei einmalig anlegen, z. B.:
+# htpasswd -c /etc/nginx/oa.htpasswd oa-team
 server {
     listen 443 ssl http2;
     server_name oa.example.org;
@@ -9,6 +11,9 @@ server {
     client_max_body_size 256m;
 
     location / {
+        auth_basic "OA-Satzsystem";
+        auth_basic_user_file /etc/nginx/oa.htpasswd;
+
         proxy_pass http://127.0.0.1:8080;
         proxy_http_version 1.1;
         proxy_set_header Host $host;

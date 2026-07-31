@@ -15,6 +15,7 @@ import (
 )
 
 const epubMimetype = "application/epub+zip"
+const epubCSSFilename = "HTWK-OAVerlag.css"
 
 var zipTimestamp = time.Date(1980, 1, 1, 0, 0, 0, 0, time.UTC)
 
@@ -62,6 +63,7 @@ func (e Engine) BuildEPUB(ctx context.Context, projectPath string) ([]Artifact, 
 		"-o:" + principalOutput,
 		"Projekt=" + pub.Name,
 		"OutputRoot=" + outputURI,
+		"CSSStylesheet=" + epubCSSFilename,
 	}
 	logToolStart(ctx, "Saxon", "EPUB-Inhalte werden transformiert.")
 	result, runErr := e.javaRunner(root).Run(ctx, root, saxonArgs...)
@@ -87,11 +89,11 @@ func (e Engine) BuildEPUB(ctx context.Context, projectPath string) ([]Artifact, 
 	// The EPUB stylesheet is an application resource. The legacy pipeline also
 	// copied this central stylesheet; a similarly named project stylesheet is
 	// intended for other output variants and lacks EPUB image/font rules.
-	cssSource := filepath.Join(layout.resources, "Stylesheets", "HTWK-OAVerlag.css")
+	cssSource := filepath.Join(layout.resources, "Stylesheets", epubCSSFilename)
 	if err := requireFile(cssSource); err != nil {
 		return nil, err
 	}
-	if err := copyFile(cssSource, filepath.Join(epubRoot, "OEBPS", "Styles", "HTWK-OAVerlag.css")); err != nil {
+	if err := copyFile(cssSource, filepath.Join(epubRoot, "OEBPS", "Styles", epubCSSFilename)); err != nil {
 		return nil, fmt.Errorf("CSS kopieren: %w", err)
 	}
 

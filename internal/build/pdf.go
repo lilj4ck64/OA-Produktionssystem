@@ -84,6 +84,8 @@ func (e Engine) BuildPDFs(ctx context.Context, projectPath string, formats []For
 		return nil, err
 	}
 	projectURI := fileURI(pub.Dir)
+	sharedImagesDir := filepath.Join(layout.resources, "Shared", "Images")
+	sharedImagesURI := fileURI(sharedImagesDir)
 
 	pending := make([]pendingArtifact, 0, len(formats))
 	seen := make(map[Format]bool)
@@ -107,6 +109,7 @@ func (e Engine) BuildPDFs(ctx context.Context, projectPath string, formats []For
 			"-pdf", tempPDF,
 			"-param", "Projektname", pub.Name,
 			"-param", "Projektpfad", projectURI,
+			"-param", "SharedImagesPfad", sharedImagesURI,
 		}
 		logToolStart(ctx, "FOP", fmt.Sprintf("%s wird erzeugt.", format))
 		result, runErr := e.javaRunner(root).Run(ctx, root, args...)

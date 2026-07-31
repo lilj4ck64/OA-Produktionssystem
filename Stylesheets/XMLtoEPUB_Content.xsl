@@ -161,9 +161,9 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 							Rechteinhaber.</p>
 						<img src="../Images/qr-doi.jpg" alt="QR-Code der Publikation" />
 						<p>Die Online-Version dieser Publikation ist abrufbar unter <br />
-						<a href="http://doi.org/10.33968/9783966270021-00">
-						    <xsl:text>http://doi.org/</xsl:text>
-							<xsl:value-of select="//book/book-meta/book-id[@book-id-type='doi']"/>
+						<a href="{concat('https://doi.org/', $DOI)}">
+						    <xsl:text>https://doi.org/</xsl:text>
+							<xsl:value-of select="$DOI"/>
 						</a></p>
 					    <p><xsl:value-of select="//book/book-meta/permissions/copyright-statement"/></p>
 						<p>Druck &amp; Bindung in Deutschland und den Niederlanden</p>

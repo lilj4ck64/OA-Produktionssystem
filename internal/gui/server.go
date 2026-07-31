@@ -35,17 +35,16 @@ var assets embed.FS
 
 type buildFunc func(context.Context, string, []build.Format) ([]build.Artifact, error)
 
-// Server owns the state shared by HTTP requests: imported projects, build
-// jobs, templates and (in server mode) the persistent database services.
+// Server owns the small in-memory state shared by HTTP requests.
 type Server struct {
-	root       string
-	workspace  string
-	templates  *template.Template
-	build      buildFunc
-	mux        *http.ServeMux
-	mu         sync.RWMutex
-	jobs       map[string]*Job
-	persistent *persistentState
+	root         string
+	workspace    string
+	templates    *template.Template
+	build        buildFunc
+	mux          *http.ServeMux
+	mu           sync.RWMutex
+	jobs         map[string]*Job
+	buildRunning bool
 	// localHost is set only by oa gui. Requiring this exact loopback host blocks
 	// other websites from reaching the unauthenticated local API via DNS rebinding.
 	localHost string
@@ -127,7 +126,7 @@ type Job struct {
 	Progress  int            `json:"progress"`
 	Logs      []string       `json:"logs"`
 	Artifacts []artifactLink `json:"artifacts"`
-	OwnerID   int64          `json:"-"`
+	Created   time.Time      `json:"-"`
 }
 
 type artifactLink struct {
@@ -140,7 +139,7 @@ type projectView struct {
 	Name, Path, URLName string
 }
 
-// New creates a local GUI HTTP handler.
+// New creates the shared handler used by the local GUI and small server.
 func New(root, workspace string) (*Server, error) {
 	root, err := filepath.Abs(root)
 	if err != nil {
@@ -186,8 +185,18 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if s.persistent != nil && !s.authorizeRequest(w, r) {
-		return
+	if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
+		if strings.EqualFold(r.Header.Get("Sec-Fetch-Site"), "cross-site") {
+			http.Error(w, "Browserübergreifender Zugriff abgelehnt.", http.StatusForbidden)
+			return
+		}
+		if origin := r.Header.Get("Origin"); origin != "" {
+			parsed, err := url.Parse(origin)
+			if err != nil || parsed.Host != r.Host || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+				http.Error(w, "Fremder Ursprung abgelehnt.", http.StatusForbidden)
+				return
+			}
+		}
 	}
 	s.mux.ServeHTTP(w, r)
 }
@@ -199,9 +208,6 @@ func (s *Server) routes() {
 	}
 	static := http.FileServer(http.FS(staticFS))
 	s.mux.Handle("/static/", http.StripPrefix("/static/", static))
-	s.mux.HandleFunc("/login", s.login)
-	s.mux.HandleFunc("/logout", s.logout)
-	s.mux.HandleFunc("/admin/users", s.adminUsers)
 	s.mux.HandleFunc("/", s.home)
 	s.mux.HandleFunc("/import", s.importProject)
 	s.mux.HandleFunc("/import-folder", s.importFolder)
@@ -250,50 +256,22 @@ func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	user := requestUser(r)
-	projects, err := s.projects(user)
+	projects, err := s.projects()
 	data := struct {
 		Projects []projectView
 		Jobs     []jobView
 		Message  string
 		Error    string
-		CSRF     string
-		Username string
-		IsAdmin  bool
 		Local    bool
-	}{Projects: projects, Jobs: s.recentJobs(user), Message: r.URL.Query().Get("message"), CSRF: requestCSRF(r), Local: s.persistent == nil}
-	if user != nil {
-		data.Username, data.IsAdmin = user.Username, user.Role == roleAdmin
-	}
+	}{Projects: projects, Jobs: s.recentJobs(), Message: r.URL.Query().Get("message"), Local: s.localHost != ""}
 	if err != nil {
 		data.Error = err.Error()
 	}
 	s.render(w, "index", data)
 }
 
-func (s *Server) projects(user *User) ([]projectView, error) {
+func (s *Server) projects() ([]projectView, error) {
 	projectsDir := filepath.Join(s.workspace, "projects")
-	if s.persistent != nil {
-		if user == nil {
-			return nil, fmt.Errorf("Anmeldung erforderlich")
-		}
-		rows, err := s.persistent.db.Query(`SELECT name,path FROM projects WHERE owner_id=? ORDER BY name COLLATE NOCASE`, user.ID)
-		if err != nil {
-			return nil, err
-		}
-		defer rows.Close()
-		var result []projectView
-		for rows.Next() {
-			var name, path string
-			if err := rows.Scan(&name, &path); err != nil {
-				return nil, err
-			}
-			if _, err := project.Open(path); err == nil {
-				result = append(result, projectView{Name: name, Path: path, URLName: url.QueryEscape(name)})
-			}
-		}
-		return result, rows.Err()
-	}
 	entries, err := os.ReadDir(projectsDir)
 	if err != nil {
 		return nil, err
@@ -323,22 +301,9 @@ func (s *Server) importProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer file.Close()
-	user := requestUser(r)
 	projectsDir := filepath.Join(s.workspace, "projects")
-	if s.persistent != nil {
-		projectsDir = filepath.Join(projectsDir, fmt.Sprint(user.ID))
-		if err := os.MkdirAll(projectsDir, 0o755); err != nil {
-			s.redirectMessage(w, r, "Import fehlgeschlagen: "+err.Error())
-			return
-		}
-	}
 	name, err := importZIP(file, header, projectsDir)
 	if err != nil {
-		s.redirectMessage(w, r, "Import fehlgeschlagen: "+err.Error())
-		return
-	}
-	if err := s.recordProject(user, name, filepath.Join(projectsDir, name)); err != nil {
-		_ = os.RemoveAll(filepath.Join(projectsDir, name))
 		s.redirectMessage(w, r, "Import fehlgeschlagen: "+err.Error())
 		return
 	}
@@ -349,7 +314,7 @@ func (s *Server) importProject(w http.ResponseWriter, r *http.Request) {
 // picker. It exists only in the loopback GUI; the networked server deliberately
 // keeps the simpler ZIP-only import.
 func (s *Server) importFolder(w http.ResponseWriter, r *http.Request) {
-	if s.persistent != nil {
+	if s.localHost == "" {
 		http.NotFound(w, r)
 		return
 	}
@@ -412,9 +377,6 @@ func (s *Server) importFolder(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	name, err := publishImportedStage(stage, projectsDir)
-	if err == nil {
-		err = s.recordProject(nil, name, filepath.Join(projectsDir, name))
-	}
 	if err != nil {
 		if name != "" {
 			_ = os.RemoveAll(filepath.Join(projectsDir, name))
@@ -587,7 +549,7 @@ func locateImportedProject(stage string) (string, string, error) {
 }
 
 func (s *Server) validateProject(w http.ResponseWriter, r *http.Request) {
-	pub, err := s.openWorkspaceProject(requestUser(r), r.URL.Query().Get("project"))
+	pub, err := s.openWorkspaceProject(r.URL.Query().Get("project"))
 	if err != nil {
 		s.redirectMessage(w, r, "Prüfung fehlgeschlagen: "+err.Error())
 		return
@@ -600,8 +562,7 @@ func (s *Server) startBuild(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Nur POST ist erlaubt.", http.StatusMethodNotAllowed)
 		return
 	}
-	user := requestUser(r)
-	pub, err := s.openWorkspaceProject(user, r.FormValue("project"))
+	pub, err := s.openWorkspaceProject(r.FormValue("project"))
 	if err != nil {
 		s.redirectMessage(w, r, "Build abgelehnt: "+err.Error())
 		return
@@ -620,19 +581,14 @@ func (s *Server) startBuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := randomID()
-	job := &Job{ID: id, Project: pub.Name, Status: "wartet", Progress: 5, Logs: []string{"Build wurde eingeplant."}}
-	if user != nil {
-		job.OwnerID = user.ID
-	}
-	if s.persistent != nil {
-		if err := s.enqueuePersistent(job, pub.Dir, formats); err != nil {
-			s.redirectMessage(w, r, "Build abgelehnt: "+err.Error())
-			return
-		}
-		http.Redirect(w, r, "/jobs/"+id, http.StatusSeeOther)
+	job := &Job{ID: id, Project: pub.Name, Status: "läuft", Progress: 10, Logs: []string{"Build wurde gestartet."}, Created: time.Now()}
+	s.mu.Lock()
+	if s.buildRunning {
+		s.mu.Unlock()
+		s.redirectMessage(w, r, "Es läuft bereits ein Build. Bitte nach dessen Abschluss erneut versuchen.")
 		return
 	}
-	s.mu.Lock()
+	s.buildRunning = true
 	s.jobs[id] = job
 	s.mu.Unlock()
 	go s.runBuild(job, pub.Dir, formats)
@@ -642,6 +598,11 @@ func (s *Server) startBuild(w http.ResponseWriter, r *http.Request) {
 func (s *Server) runBuild(job *Job, projectDir string, formats []build.Format) {
 	// Browser requests return immediately; the expensive Java work continues in
 	// the background while the job page polls the small JSON status endpoint.
+	defer func() {
+		s.mu.Lock()
+		s.buildRunning = false
+		s.mu.Unlock()
+	}()
 	s.updateJob(job.ID, func(item *Job) {
 		item.Status, item.Progress = "läuft", 20
 		item.Logs = append(item.Logs, "Projekt wurde geprüft.", "Buildkern wird gestartet.")
@@ -677,9 +638,6 @@ func (s *Server) updateJob(id string, change func(*Job)) {
 	defer s.mu.Unlock()
 	if job := s.jobs[id]; job != nil {
 		change(job)
-		if s.persistent != nil {
-			_ = s.persistJob(job)
-		}
 	}
 }
 
@@ -692,19 +650,15 @@ func (s *Server) jobPage(w http.ResponseWriter, r *http.Request) {
 		job = &copy
 	}
 	s.mu.RUnlock()
-	if job == nil || !s.mayAccessJob(requestUser(r), job) {
+	if job == nil {
 		http.NotFound(w, r)
 		return
 	}
 	data := struct {
 		ID, Project, Status, Logs string
 		Progress                  int
-		Username                  string
 		Local                     bool
-	}{ID: job.ID, Project: job.Project, Status: job.Status, Logs: strings.Join(job.Logs, "\n"), Progress: job.Progress, Local: s.persistent == nil}
-	if user := requestUser(r); user != nil {
-		data.Username = user.Username
-	}
+	}{ID: job.ID, Project: job.Project, Status: job.Status, Logs: strings.Join(job.Logs, "\n"), Progress: job.Progress, Local: s.localHost != ""}
 	s.render(w, "job", data)
 }
 
@@ -719,7 +673,7 @@ func (s *Server) jobJSON(w http.ResponseWriter, r *http.Request) {
 		job = &copy
 	}
 	s.mu.RUnlock()
-	if job == nil || !s.mayAccessJob(requestUser(r), job) {
+	if job == nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -729,20 +683,11 @@ func (s *Server) jobJSON(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) artifact(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/artifacts/"), "/")
-	if len(parts) == 3 && parts[0] == "jobs" && s.persistent != nil {
-		path, err := s.persistentArtifact(requestUser(r), parts[1], parts[2])
-		if err != nil {
-			http.NotFound(w, r)
-			return
-		}
-		http.ServeFile(w, r, path)
-		return
-	}
 	if len(parts) != 2 {
 		http.NotFound(w, r)
 		return
 	}
-	pub, err := s.openWorkspaceProject(requestUser(r), parts[0])
+	pub, err := s.openWorkspaceProject(parts[0])
 	if err != nil {
 		http.NotFound(w, r)
 		return
@@ -755,38 +700,36 @@ func (s *Server) artifact(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, path)
 }
 
-func (s *Server) openWorkspaceProject(user *User, name string) (project.Project, error) {
-	// Never trust a project name received from a URL or form. In server mode the
-	// database lookup additionally proves that the signed-in user owns it.
+func (s *Server) openWorkspaceProject(name string) (project.Project, error) {
+	// Never trust a project name received from a URL or form.
 	if name == "" || filepath.Base(name) != name || name == "." || name == ".." {
 		return project.Project{}, fmt.Errorf("ungültiger Projektname")
 	}
 	projectsDir := filepath.Join(s.workspace, "projects")
-	if s.persistent != nil {
-		if user == nil {
-			return project.Project{}, fmt.Errorf("Anmeldung erforderlich")
-		}
-		var storedPath string
-		if err := s.persistent.db.QueryRow(`SELECT path FROM projects WHERE owner_id=? AND name=?`, user.ID, name).Scan(&storedPath); err != nil {
-			return project.Project{}, fmt.Errorf("Projekt nicht gefunden")
-		}
-		absoluteRoot, _ := filepath.Abs(projectsDir)
-		absolutePath, err := filepath.Abs(storedPath)
-		if err != nil {
-			return project.Project{}, fmt.Errorf("ungültiger Projektpfad")
-		}
-		relative, err := filepath.Rel(absoluteRoot, absolutePath)
-		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-			return project.Project{}, fmt.Errorf("ungültiger Projektpfad")
-		}
-		return project.Open(absolutePath)
-	}
 	path := filepath.Join(projectsDir, name)
 	return project.Open(path)
 }
 
-func (s *Server) mayAccessJob(user *User, job *Job) bool {
-	return s.persistent == nil || (user != nil && job.OwnerID == user.ID)
+func (s *Server) recentJobs() []jobView {
+	s.mu.RLock()
+	jobs := make([]*Job, 0, len(s.jobs))
+	for _, job := range s.jobs {
+		jobs = append(jobs, job)
+	}
+	s.mu.RUnlock()
+	sort.Slice(jobs, func(i, j int) bool { return jobs[i].Created.After(jobs[j].Created) })
+	if len(jobs) > 20 {
+		jobs = jobs[:20]
+	}
+	result := make([]jobView, 0, len(jobs))
+	for _, job := range jobs {
+		result = append(result, jobView{ID: job.ID, Project: job.Project, Status: job.Status})
+	}
+	return result
+}
+
+type jobView struct {
+	ID, Project, Status string
 }
 
 func (s *Server) render(w http.ResponseWriter, name string, data any) {
@@ -837,6 +780,36 @@ func Run(ctx context.Context, root, workspace string, stdout io.Writer) error {
 		if err := openBrowser(address); err != nil {
 			log.Printf("Browser konnte nicht automatisch geöffnet werden: %v", err)
 		}
+	}()
+	err = httpServer.Serve(listener)
+	if err == http.ErrServerClosed {
+		return nil
+	}
+	return err
+}
+
+// RunServer starts the shared-workspace UI without opening a browser. Access
+// control belongs to the private network, VPN or authenticating reverse proxy
+// in front of this deliberately small server.
+func RunServer(ctx context.Context, root, workspace, address string, stdout io.Writer) error {
+	server, err := New(root, workspace)
+	if err != nil {
+		return err
+	}
+	listener, err := net.Listen("tcp", address)
+	if err != nil {
+		return fmt.Errorf("Serveradresse öffnen: %w", err)
+	}
+	httpServer := &http.Server{
+		Handler: server, ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout: 30 * time.Second, WriteTimeout: 15 * time.Minute, IdleTimeout: 60 * time.Second,
+	}
+	fmt.Fprintf(stdout, "OA-Server läuft unter http://%s\nGemeinsamer Workspace: %s\nBeenden mit Strg+C.\n", listener.Addr(), workspace)
+	go func() {
+		<-ctx.Done()
+		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = httpServer.Shutdown(shutdown)
 	}()
 	err = httpServer.Serve(listener)
 	if err == http.ErrServerClosed {

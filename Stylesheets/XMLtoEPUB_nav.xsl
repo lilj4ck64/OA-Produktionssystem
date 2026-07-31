@@ -35,7 +35,7 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 				xmlns:xlink="http://www.w3.org/1999/xlink"
 				xmlns:mml="http://www.w3.org/1998/Math/MathML">
 			<head>
-				<link rel="stylesheet" type="text/css" href="Styles/HTWK-OAVerlag.css"/>
+				<link rel="stylesheet" type="text/css" href="Styles/{$CSS-Stylesheet}"/>
 				<title>Inhaltsverzeichnis</title>
 			</head>
 			<body>

@@ -94,10 +94,9 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 	<xsl:text>.xhtml</xsl:text>
 </xsl:variable>
 	
-<!-- Name des CSS-Stylesheets -->
-<xsl:variable name="CSS-Stylesheet">
-	<xsl:text>HTWK-OAVerlag.css</xsl:text>
-</xsl:variable>
+<!-- Name des CSS-Stylesheets; wird vom Go-Buildkern übergeben. -->
+<xsl:param name="CSSStylesheet"/>
+<xsl:variable name="CSS-Stylesheet" select="$CSSStylesheet"/>
 
 <!-- DOI des Werkes -->
 <xsl:variable name="DOI">

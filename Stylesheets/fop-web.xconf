@@ -15,9 +15,7 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 <!-- NOTE: This is the version of the configuration -->
 <fop version="1.0">
 
-  <!-- Base URL for resolving relative URLs -->
-  <base>../Projekte/</base>
-  
+  <!-- Relative font URLs are resolved from this configuration file. -->
   <font-base>../Shared/Fonts/</font-base>
 
   <!-- Einstellen der Silbentrennung -->

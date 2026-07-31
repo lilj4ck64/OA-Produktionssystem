@@ -2,7 +2,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -14,8 +13,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-
-	"golang.org/x/term"
 
 	"oa-satzsystem/internal/build"
 	"oa-satzsystem/internal/gui"
@@ -80,8 +77,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runGUI(args[1:], stdout, stderr)
 	case "serve":
 		return runServe(args[1:], stdout, stderr)
-	case "admin":
-		return runAdmin(args[1:], stdout, stderr)
 	case "-h", "--help", "help":
 		printUsage(stdout)
 		return exitOK
@@ -101,103 +96,18 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  validate <Projekt>")
 	fmt.Fprintln(w, "  build <Projekt> --format FORMAT [--format FORMAT ...] [--output ORDNER]")
 	fmt.Fprintln(w, "  gui [--workspace ORDNER]  Lokale Browser-GUI starten")
-	fmt.Fprintln(w, "  serve --data-dir ORDNER [--listen ADRESSE]  Persistenten Server starten")
-	fmt.Fprintln(w, "  admin init --data-dir ORDNER --username NAME  Initialen Administrator anlegen")
+	fmt.Fprintln(w, "  serve --workspace ORDNER [--listen ADRESSE]  Kleinen gemeinsamen Server starten")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Formate: print-pdf, web-pdf, epub")
 }
 
-func runAdmin(args []string, stdout, stderr io.Writer) int {
-	dataDir, username, err := parseAdminInitArgs(args)
-	if err != nil {
-		fmt.Fprintf(stderr, "Ungültiger Aufruf: %v\n", err)
-		fmt.Fprintln(stderr, "Verwendung: oa admin init --data-dir ORDNER --username NAME")
-		return exitUsage
-	}
-	password, err := promptNewPassword(stderr)
-	if err != nil {
-		fmt.Fprintf(stderr, "Passwort konnte nicht gelesen werden: %v\n", err)
-		return exitFailure
-	}
-	if err := gui.CreateInitialAdmin(dataDir, username, password); err != nil {
-		fmt.Fprintf(stderr, "Administrator konnte nicht angelegt werden: %v\n", err)
-		return exitFailure
-	}
-	fmt.Fprintf(stdout, "Initialer Administrator %q wurde angelegt.\n", username)
-	return exitOK
-}
-
-// parseAdminInitArgs separates command-line options from their values without
-// starting the server or changing any data. Keeping parsing separate makes bad
-// invocations easy to test safely.
-func parseAdminInitArgs(args []string) (dataDir, username string, err error) {
-	if len(args) == 0 || args[0] != "init" {
-		return "", "", fmt.Errorf("Unterbefehl init fehlt")
-	}
-	for i := 1; i < len(args); i++ {
-		key, value := args[i], ""
-		if strings.Contains(key, "=") {
-			parts := strings.SplitN(key, "=", 2)
-			key, value = parts[0], parts[1]
-		} else if key == "--data-dir" || key == "--username" {
-			if i+1 >= len(args) {
-				return "", "", fmt.Errorf("Wert nach %s fehlt", key)
-			}
-			i++
-			value = args[i]
-		}
-		switch key {
-		case "--data-dir":
-			absolute, pathErr := filepath.Abs(value)
-			if pathErr != nil {
-				return "", "", pathErr
-			}
-			dataDir = filepath.Clean(absolute)
-		case "--username":
-			username = strings.TrimSpace(value)
-		default:
-			return "", "", fmt.Errorf("unbekannte Option %q", key)
-		}
-	}
-	if dataDir == "" || username == "" {
-		return "", "", fmt.Errorf("--data-dir und --username sind erforderlich")
-	}
-	return dataDir, username, nil
-}
-
-func promptNewPassword(stderr io.Writer) (string, error) {
-	fmt.Fprint(stderr, "Passwort (mindestens 12 Zeichen): ")
-	if term.IsTerminal(int(os.Stdin.Fd())) {
-		first, err := term.ReadPassword(int(os.Stdin.Fd()))
-		fmt.Fprintln(stderr)
-		if err != nil {
-			return "", err
-		}
-		fmt.Fprint(stderr, "Passwort wiederholen: ")
-		second, err := term.ReadPassword(int(os.Stdin.Fd()))
-		fmt.Fprintln(stderr)
-		if err != nil {
-			return "", err
-		}
-		if string(first) != string(second) {
-			return "", fmt.Errorf("Passwörter stimmen nicht überein")
-		}
-		return string(first), nil
-	}
-	scanner := bufio.NewScanner(os.Stdin)
-	if !scanner.Scan() {
-		return "", fmt.Errorf("Passwort fehlt")
-	}
-	return scanner.Text(), scanner.Err()
-}
-
-// runServe starts the persistent, login-protected multi-user mode and keeps it
-// alive until the operating system asks the program to stop.
+// runServe starts the small shared-workspace server and keeps it alive until
+// the operating system asks the program to stop.
 func runServe(args []string, stdout, stderr io.Writer) int {
-	dataDir, address, err := parseServeArgs(args)
+	workspace, address, err := parseServeArgs(args)
 	if err != nil {
 		fmt.Fprintf(stderr, "Ungültiger Aufruf: %v\n", err)
-		fmt.Fprintln(stderr, "Verwendung: oa serve --data-dir ORDNER [--listen 127.0.0.1:8080]")
+		fmt.Fprintln(stderr, "Verwendung: oa serve --workspace ORDNER [--listen 127.0.0.1:8080]")
 		return exitUsage
 	}
 	root, err := findApplicationRoot()
@@ -207,21 +117,21 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	if err := gui.RunServer(ctx, root, dataDir, address, stdout); err != nil {
+	if err := gui.RunServer(ctx, root, workspace, address, stdout); err != nil {
 		fmt.Fprintf(stderr, "Server fehlgeschlagen: %v\n", err)
 		return exitFailure
 	}
 	return exitOK
 }
 
-func parseServeArgs(args []string) (dataDir, address string, err error) {
+func parseServeArgs(args []string) (workspace, address string, err error) {
 	address = "127.0.0.1:8080"
 	for i := 0; i < len(args); i++ {
 		key, value := args[i], ""
 		if strings.Contains(key, "=") {
 			parts := strings.SplitN(key, "=", 2)
 			key, value = parts[0], parts[1]
-		} else if key == "--data-dir" || key == "--listen" {
+		} else if key == "--workspace" || key == "--listen" {
 			if i+1 >= len(args) {
 				return "", "", fmt.Errorf("Wert nach %s fehlt", key)
 			}
@@ -229,18 +139,18 @@ func parseServeArgs(args []string) (dataDir, address string, err error) {
 			value = args[i]
 		}
 		switch key {
-		case "--data-dir":
-			if dataDir != "" {
-				return "", "", fmt.Errorf("--data-dir darf nur einmal angegeben werden")
+		case "--workspace":
+			if workspace != "" {
+				return "", "", fmt.Errorf("--workspace darf nur einmal angegeben werden")
 			}
 			if strings.TrimSpace(value) == "" {
-				return "", "", fmt.Errorf("Datenverzeichnis fehlt")
+				return "", "", fmt.Errorf("Workspace fehlt")
 			}
 			absolute, pathErr := filepath.Abs(value)
 			if pathErr != nil {
-				return "", "", fmt.Errorf("Datenverzeichnis auflösen: %w", pathErr)
+				return "", "", fmt.Errorf("Workspace auflösen: %w", pathErr)
 			}
-			dataDir = filepath.Clean(absolute)
+			workspace = filepath.Clean(absolute)
 		case "--listen":
 			if strings.TrimSpace(value) == "" {
 				return "", "", fmt.Errorf("Serveradresse fehlt")
@@ -250,14 +160,14 @@ func parseServeArgs(args []string) (dataDir, address string, err error) {
 			return "", "", fmt.Errorf("unbekannte Option %q", key)
 		}
 	}
-	if dataDir == "" {
-		return "", "", fmt.Errorf("--data-dir ist erforderlich")
+	if workspace == "" {
+		return "", "", fmt.Errorf("--workspace ist erforderlich")
 	}
-	return dataDir, address, nil
+	return workspace, address, nil
 }
 
 func runGUI(args []string, stdout, stderr io.Writer) int {
-	workspace, persistent, err := parseGUIArgs(args)
+	workspace, workspaceProvided, err := parseGUIArgs(args)
 	if err != nil {
 		fmt.Fprintf(stderr, "Ungültiger Aufruf: %v\n", err)
 		fmt.Fprintln(stderr, "Verwendung: oa gui [--workspace ORDNER]")
@@ -268,7 +178,7 @@ func runGUI(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "Anwendungsressourcen nicht gefunden: %v\n", err)
 		return exitFailure
 	}
-	if !persistent {
+	if !workspaceProvided {
 		workspace, err = os.MkdirTemp("", "oa-gui-workspace-*")
 		if err != nil {
 			fmt.Fprintf(stderr, "Temporären GUI-Workspace anlegen: %v\n", err)
@@ -285,7 +195,7 @@ func runGUI(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-func parseGUIArgs(args []string) (workspace string, persistent bool, err error) {
+func parseGUIArgs(args []string) (workspace string, provided bool, err error) {
 	if len(args) == 0 {
 		return "", false, nil
 	}
@@ -429,12 +339,12 @@ func findApplicationRoot() (string, error) {
 			continue
 		}
 		for {
-			developmentStylesheet := filepath.Join(absolute, "Stylesheets", "XMLtoPDF_FOP.xsl")
+			developmentStylesheets := filepath.Join(absolute, "Stylesheets")
 			developmentLibraries := filepath.Join(absolute, "java-toolchain", "build", "stage", "lib")
-			packagedStylesheet := filepath.Join(absolute, "resources", "Stylesheets", "XMLtoPDF_FOP.xsl")
+			packagedStylesheets := filepath.Join(absolute, "resources", "Stylesheets")
 			packagedLibraries := filepath.Join(absolute, "lib")
-			if (regularFile(developmentStylesheet) && directory(developmentLibraries)) ||
-				(regularFile(packagedStylesheet) && directory(packagedLibraries)) {
+			if (directory(developmentStylesheets) && directory(developmentLibraries)) ||
+				(directory(packagedStylesheets) && directory(packagedLibraries)) {
 				return absolute, nil
 			}
 			parent := filepath.Dir(absolute)
@@ -445,11 +355,6 @@ func findApplicationRoot() (string, error) {
 		}
 	}
 	return "", fmt.Errorf("Stylesheets und Java-Bibliotheken fehlen")
-}
-
-func regularFile(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.Mode().IsRegular()
 }
 
 func directory(path string) bool {

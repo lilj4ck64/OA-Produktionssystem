@@ -26,8 +26,8 @@ Sie sollten ein Exemplar der GNU General Public License zusammen mit diesem Prog
 	 
 <xsl:variable name="Ausgabeformat">Hardcover</xsl:variable>
 
-<!-- Shared Images -->
-<xsl:variable name="Shared_Images">../Shared/Images/</xsl:variable>
+<!-- Absoluter URI des gemeinsamen Bilderordners; wird vom Go-Buildkern übergeben. -->
+<xsl:param name="SharedImagesPfad"/>
 
 <!-- *****************************************************
   Format und Stege
