@@ -68,7 +68,10 @@ go run ./cmd/oa gui
 
 Der Server bindet ausschließlich an `127.0.0.1` und wählt einen freien Port.
 Importierte Projekte liegen standardmäßig in einem temporären Workspace, der
-beim normalen Beenden mit `Strg+C` automatisch gelöscht wird. Sollen Importe
+beim Schließen des letzten GUI-Tabs oder beim Beenden mit `Strg+C` automatisch
+gelöscht wird. Der lokale GUI-Prozess erkennt geschlossene Browser-Tabs und
+beendet sich nach einer kurzen Karenzzeit selbst; Reloads und Navigationen
+innerhalb der GUI halten ihn aktiv. Sollen Importe
 zwischen mehreren GUI-Starts erhalten bleiben, kann mit
 `oa gui --workspace <ordner>` bewusst ein dauerhafter Speicherort gewählt
 werden. Wenn der Browser die File-System-Access-API bereitstellt, kann
@@ -200,5 +203,6 @@ $env:JAVA_HOME = "C:\Pfad\zu\jdk-21"
 - Der Servermodus ist für kleine Installationen mit einer einzelnen
   Anwendungsinstanz und zwei parallelen Build-Workern ausgelegt, nicht für
   verteilten Betrieb.
-- Ein geschlossener Browser-Tab beendet einen bereits gestarteten lokalen
-  Build nicht; das Zeitlimit beendet ihn spätestens nach zehn Minuten.
+- Das Schließen des letzten lokalen GUI-Tabs beendet auch den GUI-Prozess.
+  Ein zu diesem Zeitpunkt laufender Build wird daher abgebrochen; während
+  eines Builds muss der Tab geöffnet bleiben.

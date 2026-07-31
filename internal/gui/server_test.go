@@ -30,6 +30,7 @@ func TestHomeAndEmbeddedAssets(t *testing.T) {
 		{"/", "Projektordner auswählen"},
 		{"/static/style.css", ".dropzone"},
 		{"/static/app.js", "dragenter"},
+		{"/static/lifecycle.js", "/api/local-session/heartbeat"},
 	} {
 		request := httptest.NewRequest(http.MethodGet, test.path, nil)
 		response := httptest.NewRecorder()
@@ -40,6 +41,69 @@ func TestHomeAndEmbeddedAssets(t *testing.T) {
 		if !strings.Contains(response.Body.String(), test.contains) {
 			t.Fatalf("GET %s did not contain %q", test.path, test.contains)
 		}
+	}
+}
+
+func TestLocalLifecycleClosesAfterLastBrowserPage(t *testing.T) {
+	lifecycle := newLocalLifecycle(300*time.Millisecond, 80*time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go lifecycle.watch(ctx)
+
+	lifecycle.heartbeat("page-one")
+	lifecycle.closing("page-one")
+	time.Sleep(40 * time.Millisecond)
+	// A reload or in-app navigation creates a fresh page before the grace period
+	// ends and must keep the GUI process alive.
+	lifecycle.heartbeat("page-two")
+	select {
+	case <-lifecycle.done:
+		t.Fatal("lifecycle ended during an in-app navigation")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	lifecycle.closing("page-two")
+	select {
+	case <-lifecycle.done:
+	case <-time.After(300 * time.Millisecond):
+		t.Fatal("lifecycle did not end after the last browser page closed")
+	}
+}
+
+func TestLocalLifecycleIgnoresLateHeartbeatAfterClose(t *testing.T) {
+	lifecycle := newLocalLifecycle(300*time.Millisecond, 50*time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go lifecycle.watch(ctx)
+
+	lifecycle.heartbeat("closing-page")
+	lifecycle.closing("closing-page")
+	lifecycle.heartbeat("closing-page")
+	select {
+	case <-lifecycle.done:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("late heartbeat kept a closed browser page alive")
+	}
+}
+
+func TestLocalSessionEndpointIsLocalOnly(t *testing.T) {
+	server, err := New(t.TempDir(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/local-session/heartbeat", strings.NewReader("page-one"))
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("inactive local lifecycle returned %d, want 404", response.Code)
+	}
+
+	server.lifecycle = newLocalLifecycle(time.Second, time.Second)
+	request = httptest.NewRequest(http.MethodPost, "/api/local-session/heartbeat", strings.NewReader("page-one"))
+	response = httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("active local lifecycle returned %d, want 204", response.Code)
 	}
 }
 

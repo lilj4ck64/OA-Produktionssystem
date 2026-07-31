@@ -49,6 +49,74 @@ type Server struct {
 	// localHost is set only by oa gui. Requiring this exact loopback host blocks
 	// other websites from reaching the unauthenticated local API via DNS rebinding.
 	localHost string
+	lifecycle *localLifecycle
+}
+
+type localLifecycle struct {
+	mu               sync.Mutex
+	clients          map[string]localClient
+	seenClient       bool
+	heartbeatTimeout time.Duration
+	closeGrace       time.Duration
+	done             chan struct{}
+	once             sync.Once
+}
+
+type localClient struct {
+	deadline time.Time
+	closing  bool
+}
+
+func newLocalLifecycle(heartbeatTimeout, closeGrace time.Duration) *localLifecycle {
+	return &localLifecycle{
+		clients: make(map[string]localClient), heartbeatTimeout: heartbeatTimeout,
+		closeGrace: closeGrace, done: make(chan struct{}),
+	}
+}
+
+func (l *localLifecycle) heartbeat(id string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.seenClient = true
+	if client, exists := l.clients[id]; exists && client.closing {
+		return
+	}
+	l.clients[id] = localClient{deadline: time.Now().Add(l.heartbeatTimeout)}
+}
+
+func (l *localLifecycle) closing(id string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.seenClient = true
+	l.clients[id] = localClient{deadline: time.Now().Add(l.closeGrace), closing: true}
+}
+
+func (l *localLifecycle) watch(ctx context.Context) {
+	interval := l.closeGrace / 4
+	if interval <= 0 || interval > time.Second {
+		interval = time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-ticker.C:
+			l.mu.Lock()
+			for id, client := range l.clients {
+				if !now.Before(client.deadline) {
+					delete(l.clients, id)
+				}
+			}
+			finished := l.seenClient && len(l.clients) == 0
+			l.mu.Unlock()
+			if finished {
+				l.once.Do(func() { close(l.done) })
+				return
+			}
+		}
+	}
 }
 
 // Job is the browser-visible state of one asynchronous build.
@@ -141,7 +209,40 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/build", s.startBuild)
 	s.mux.HandleFunc("/jobs/", s.jobPage)
 	s.mux.HandleFunc("/api/jobs/", s.jobJSON)
+	s.mux.HandleFunc("/api/local-session/heartbeat", s.localSessionHeartbeat)
+	s.mux.HandleFunc("/api/local-session/close", s.localSessionClose)
 	s.mux.HandleFunc("/artifacts/", s.artifact)
+}
+
+func (s *Server) localSessionHeartbeat(w http.ResponseWriter, r *http.Request) {
+	s.localSession(w, r, false)
+}
+
+func (s *Server) localSessionClose(w http.ResponseWriter, r *http.Request) {
+	s.localSession(w, r, true)
+}
+
+func (s *Server) localSession(w http.ResponseWriter, r *http.Request, closing bool) {
+	if s.lifecycle == nil {
+		http.NotFound(w, r)
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "Nur POST ist erlaubt.", http.StatusMethodNotAllowed)
+		return
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 256))
+	id := strings.TrimSpace(string(body))
+	if err != nil || id == "" || len(id) > 128 {
+		http.Error(w, "Ungültige lokale Sitzung.", http.StatusBadRequest)
+		return
+	}
+	if closing {
+		s.lifecycle.closing(id)
+	} else {
+		s.lifecycle.heartbeat(id)
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) home(w http.ResponseWriter, r *http.Request) {
@@ -599,7 +700,8 @@ func (s *Server) jobPage(w http.ResponseWriter, r *http.Request) {
 		ID, Project, Status, Logs string
 		Progress                  int
 		Username                  string
-	}{ID: job.ID, Project: job.Project, Status: job.Status, Logs: strings.Join(job.Logs, "\n"), Progress: job.Progress}
+		Local                     bool
+	}{ID: job.ID, Project: job.Project, Status: job.Status, Logs: strings.Join(job.Logs, "\n"), Progress: job.Progress, Local: s.persistent == nil}
 	if user := requestUser(r); user != nil {
 		data.Username = user.Username
 	}
@@ -719,9 +821,14 @@ func Run(ctx context.Context, root, workspace string, stdout io.Writer) error {
 	httpServer := &http.Server{Handler: server, ReadHeaderTimeout: 5 * time.Second}
 	address := "http://" + listener.Addr().String()
 	server.localHost = listener.Addr().String()
-	fmt.Fprintf(stdout, "OA-GUI läuft unter %s\nWorkspace: %s\nBeenden mit Strg+C.\n", address, workspace)
+	server.lifecycle = newLocalLifecycle(2*time.Minute, 4*time.Second)
+	fmt.Fprintf(stdout, "OA-GUI läuft unter %s\nWorkspace: %s\nZum Beenden Browser-Tab schließen oder Strg+C drücken.\n", address, workspace)
+	go server.lifecycle.watch(ctx)
 	go func() {
-		<-ctx.Done()
+		select {
+		case <-ctx.Done():
+		case <-server.lifecycle.done:
+		}
 		shutdown, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		_ = httpServer.Shutdown(shutdown)

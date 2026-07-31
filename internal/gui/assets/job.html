@@ -26,6 +26,7 @@
   </main>
   <script>window.OA_JOB_ID = {{.ID}};</script>
   <script>window.OA_PROJECT_NAME = {{.Project}};</script>
+  {{if .Local}}<script src="/static/lifecycle.js"></script>{{end}}
   <script src="/static/job.js"></script>
 </body>
 </html>
