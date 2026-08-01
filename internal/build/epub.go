@@ -66,7 +66,7 @@ func (e Engine) BuildEPUB(ctx context.Context, projectPath string) ([]Artifact, 
 		"CSSStylesheet=" + epubCSSFilename,
 	}
 	logToolStart(ctx, "Saxon", "EPUB-Inhalte werden transformiert.")
-	result, runErr := e.javaRunner(root).Run(ctx, root, saxonArgs...)
+	result, runErr := e.javaRunner(root).RunWithOutput(ctx, root, logToolOutput(ctx, "Saxon"), saxonArgs...)
 	logToolResult(ctx, "Saxon", result, runErr)
 	if runErr != nil {
 		return nil, fmt.Errorf("Saxon-Transformation fehlgeschlagen (Exitcode %d, Dauer %s): %w\n%s",
@@ -103,7 +103,7 @@ func (e Engine) BuildEPUB(ctx context.Context, projectPath string) ([]Artifact, 
 	}
 
 	logToolStart(ctx, "EPUBCheck", "Das gepackte EPUB wird validiert.")
-	checkResult, checkErr := e.javaRunner(root).Run(ctx, root,
+	checkResult, checkErr := e.javaRunner(root).RunWithOutput(ctx, root, logToolOutput(ctx, "EPUBCheck"),
 		"-cp", classpath,
 		"com.adobe.epubcheck.tool.Checker",
 		tempEPUB,

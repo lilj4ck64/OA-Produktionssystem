@@ -16,28 +16,12 @@
   const button = document.querySelector('#choose-folder');
   const status = document.querySelector('#folder-status');
   if (!button) return;
-  if (!window.showDirectoryPicker || !window.indexedDB) {
+  if (!window.showDirectoryPicker) {
     button.disabled = true;
     status.textContent = 'Dieser Browser unterstützt den direkten Ordnerzugriff nicht. Bitte den ZIP-Import verwenden.';
     return;
   }
 
-  const openDatabase = () => new Promise((resolve, reject) => {
-    const request = indexedDB.open('oa-local-folders', 1);
-    request.onupgradeneeded = () => request.result.createObjectStore('projects');
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-  const rememberHandle = async (project, handle) => {
-    const database = await openDatabase();
-    await new Promise((resolve, reject) => {
-      const transaction = database.transaction('projects', 'readwrite');
-      transaction.objectStore('projects').put(handle, project);
-      transaction.oncomplete = resolve;
-      transaction.onerror = () => reject(transaction.error);
-    });
-    database.close();
-  };
   const collectFiles = async (directory, prefix, result) => {
     for await (const [name, handle] of directory.entries()) {
       if (prefix === '' && name === 'Outputs') continue;
@@ -50,7 +34,7 @@
   button.addEventListener('click', async () => {
     button.disabled = true;
     try {
-      const handle = await showDirectoryPicker({mode: 'readwrite'});
+      const handle = await showDirectoryPicker({mode: 'read'});
       status.textContent = 'Projektdateien werden gelesen …';
       const files = [];
       await collectFiles(handle, '', files);
@@ -65,8 +49,7 @@
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Ordnerimport fehlgeschlagen.');
-      await rememberHandle(result.project, handle);
-      location.href = '/?message=' + encodeURIComponent(`Projekt ${result.project} wurde importiert. Ausgaben werden direkt in Outputs gespeichert.`);
+      location.href = '/?message=' + encodeURIComponent(`Projekt ${result.project} wurde importiert. Ausgaben werden im zentralen Root-Ordner Outputs gespeichert.`);
     } catch (error) {
       if (error.name !== 'AbortError') status.textContent = error.message;
       button.disabled = false;

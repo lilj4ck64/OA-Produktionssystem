@@ -103,6 +103,7 @@ func (e Engine) BuildPDFs(ctx context.Context, projectPath string, formats []For
 		args := []string{
 			"-cp", classpath,
 			"org.apache.fop.cli.Main",
+			"-d",
 			"-c", config,
 			"-xml", buildXML,
 			"-xsl", stylesheet,
@@ -112,7 +113,7 @@ func (e Engine) BuildPDFs(ctx context.Context, projectPath string, formats []For
 			"-param", "SharedImagesPfad", sharedImagesURI,
 		}
 		logToolStart(ctx, "FOP", fmt.Sprintf("%s wird erzeugt.", format))
-		result, runErr := e.javaRunner(root).Run(ctx, root, args...)
+		result, runErr := e.javaRunner(root).RunWithOutput(ctx, root, logToolOutput(ctx, "FOP"), args...)
 		logToolResult(ctx, "FOP", result, runErr)
 		if runErr != nil {
 			diagnostics := strings.TrimSpace(result.Stdout + "\n" + result.Stderr)

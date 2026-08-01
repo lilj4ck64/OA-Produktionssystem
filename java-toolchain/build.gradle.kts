@@ -33,7 +33,12 @@ val runtimeLibs = configurations.create("runtimeLibs") {
 dependencies {
     runtimeLibs("org.apache.xmlgraphics:fop:$fopVersion")
     runtimeLibs("net.sf.saxon:Saxon-HE:$saxonVersion")
-    runtimeLibs("org.w3c:epubcheck:$epubCheckVersion")
+    runtimeLibs("org.w3c:epubcheck:$epubCheckVersion") {
+        exclude(group = "org.slf4j", module = "slf4j-nop")
+    }
+    // EPUBCheck otherwise contributes slf4j-nop, which silently discards all
+    // FOP page, image and warning messages needed by the GUI build log.
+    runtimeLibs("org.slf4j:slf4j-simple:1.7.36")
 }
 
 dependencyLocking {

@@ -46,3 +46,4 @@ java-toolchain/build/
 # Generated publication artifacts are not regular project sources.
 Projekte/*/Outputs/
 !Projekte/Musterbuch/Outputs/
+Outputs/

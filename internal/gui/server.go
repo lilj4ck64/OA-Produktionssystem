@@ -3,6 +3,7 @@ package gui
 
 import (
 	"archive/zip"
+	"bytes"
 	"context"
 	"crypto/rand"
 	"embed"
@@ -33,18 +34,24 @@ import (
 //go:embed assets/*
 var assets embed.FS
 
-type buildFunc func(context.Context, string, []build.Format) ([]build.Artifact, error)
+type buildFunc func(context.Context, string, []build.Format, string) ([]build.Artifact, error)
 
 // Server owns the small in-memory state shared by HTTP requests.
 type Server struct {
 	root         string
-	workspace    string
+	projectsDir  string
 	templates    *template.Template
 	build        buildFunc
 	mux          *http.ServeMux
 	mu           sync.RWMutex
 	jobs         map[string]*Job
 	buildRunning bool
+	// outputRoot is set only in the desktop GUI. All finished local builds are
+	// published into the single Outputs directory beside the application.
+	outputRoot string
+	// artifactRoot is set only in server mode. Server builds publish into this
+	// process-owned temporary directory instead of a project's Outputs folder.
+	artifactRoot string
 	// localHost is set only by oa gui. Requiring this exact loopback host blocks
 	// other websites from reaching the unauthenticated local API via DNS rebinding.
 	localHost string
@@ -127,6 +134,13 @@ type Job struct {
 	Logs      []string       `json:"logs"`
 	Artifacts []artifactLink `json:"artifacts"`
 	Created   time.Time      `json:"-"`
+	downloads map[string]downloadArtifact
+}
+
+type downloadArtifact struct {
+	name string
+	path string
+	data []byte
 }
 
 type artifactLink struct {
@@ -136,20 +150,24 @@ type artifactLink struct {
 }
 
 type projectView struct {
-	Name, Path, URLName string
+	Name, Path string
 }
 
 // New creates the shared handler used by the local GUI and small server.
 func New(root, workspace string) (*Server, error) {
+	return newServer(root, filepath.Join(workspace, "projects"))
+}
+
+func newServer(root, projectsDir string) (*Server, error) {
 	root, err := filepath.Abs(root)
 	if err != nil {
 		return nil, err
 	}
-	workspace, err = filepath.Abs(workspace)
+	projectsDir, err = filepath.Abs(projectsDir)
 	if err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(filepath.Join(workspace, "projects"), 0o755); err != nil {
+	if err := os.MkdirAll(projectsDir, 0o755); err != nil {
 		return nil, fmt.Errorf("GUI-Workspace anlegen: %w", err)
 	}
 	tmpl, err := template.ParseFS(assets, "assets/*.html")
@@ -158,8 +176,13 @@ func New(root, workspace string) (*Server, error) {
 	}
 	engine := build.Engine{Root: root}
 	server := &Server{
-		root: root, workspace: workspace, templates: tmpl,
-		build: engine.Build, jobs: make(map[string]*Job), mux: http.NewServeMux(),
+		root: root, projectsDir: projectsDir, templates: tmpl,
+		build: func(ctx context.Context, projectPath string, formats []build.Format, outputDir string) ([]build.Artifact, error) {
+			configured := engine
+			configured.OutputDir = outputDir
+			return configured.Build(ctx, projectPath, formats)
+		},
+		jobs: make(map[string]*Job), mux: http.NewServeMux(),
 	}
 	server.routes()
 	return server, nil
@@ -211,7 +234,6 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/", s.home)
 	s.mux.HandleFunc("/import", s.importProject)
 	s.mux.HandleFunc("/import-folder", s.importFolder)
-	s.mux.HandleFunc("/validate", s.validateProject)
 	s.mux.HandleFunc("/build", s.startBuild)
 	s.mux.HandleFunc("/jobs/", s.jobPage)
 	s.mux.HandleFunc("/api/jobs/", s.jobJSON)
@@ -271,7 +293,7 @@ func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) projects() ([]projectView, error) {
-	projectsDir := filepath.Join(s.workspace, "projects")
+	projectsDir := s.projectsDir
 	entries, err := os.ReadDir(projectsDir)
 	if err != nil {
 		return nil, err
@@ -283,7 +305,7 @@ func (s *Server) projects() ([]projectView, error) {
 		}
 		path := filepath.Join(projectsDir, entry.Name())
 		if _, err := project.Open(path); err == nil {
-			result = append(result, projectView{Name: entry.Name(), Path: path, URLName: url.QueryEscape(entry.Name())})
+			result = append(result, projectView{Name: entry.Name(), Path: path})
 		}
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
@@ -301,7 +323,7 @@ func (s *Server) importProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer file.Close()
-	projectsDir := filepath.Join(s.workspace, "projects")
+	projectsDir := s.projectsDir
 	name, err := importZIP(file, header, projectsDir)
 	if err != nil {
 		s.redirectMessage(w, r, "Import fehlgeschlagen: "+err.Error())
@@ -333,7 +355,7 @@ func (s *Server) importFolder(w http.ResponseWriter, r *http.Request) {
 		s.folderImportResponse(w, r, "", fmt.Errorf("Ordnerauswahl ist unvollständig"))
 		return
 	}
-	projectsDir := filepath.Join(s.workspace, "projects")
+	projectsDir := s.projectsDir
 	stage, err := os.MkdirTemp(projectsDir, ".folder-import-*")
 	if err != nil {
 		s.folderImportResponse(w, r, "", err)
@@ -345,6 +367,9 @@ func (s *Server) importFolder(w http.ResponseWriter, r *http.Request) {
 		if pathErr != nil {
 			s.folderImportResponse(w, r, "", pathErr)
 			return
+		}
+		if containsOutputsDirectory(relative) {
+			continue
 		}
 		input, openErr := header.Open()
 		if openErr != nil {
@@ -448,6 +473,9 @@ func importZIP(file multipart.File, header *multipart.FileHeader, projectsDir st
 		if entry.Mode()&os.ModeSymlink != 0 {
 			return "", fmt.Errorf("symbolische Links sind nicht erlaubt")
 		}
+		if containsOutputsDirectory(clean) {
+			continue
+		}
 		target := filepath.Join(stage, clean)
 		relative, err := filepath.Rel(stage, target)
 		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
@@ -482,6 +510,15 @@ func importZIP(file multipart.File, header *multipart.FileHeader, projectsDir st
 		}
 	}
 	return publishImportedStage(stage, projectsDir)
+}
+
+func containsOutputsDirectory(path string) bool {
+	for _, part := range strings.Split(filepath.Clean(path), string(filepath.Separator)) {
+		if strings.EqualFold(part, "Outputs") {
+			return true
+		}
+	}
+	return false
 }
 
 // publishImportedStage validates the staged directory and moves the one
@@ -548,15 +585,6 @@ func locateImportedProject(stage string) (string, string, error) {
 	return candidates[0].path, candidates[0].name, nil
 }
 
-func (s *Server) validateProject(w http.ResponseWriter, r *http.Request) {
-	pub, err := s.openWorkspaceProject(r.URL.Query().Get("project"))
-	if err != nil {
-		s.redirectMessage(w, r, "Prüfung fehlgeschlagen: "+err.Error())
-		return
-	}
-	s.redirectMessage(w, r, "Projekt "+pub.Name+" ist gültig.")
-}
-
 func (s *Server) startBuild(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Nur POST ist erlaubt.", http.StatusMethodNotAllowed)
@@ -581,7 +609,7 @@ func (s *Server) startBuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := randomID()
-	job := &Job{ID: id, Project: pub.Name, Status: "läuft", Progress: 10, Logs: []string{"Build wurde gestartet."}, Created: time.Now()}
+	job := &Job{ID: id, Project: pub.Name, Status: "läuft", Progress: 10, Logs: []string{"Build wurde gestartet."}, Created: time.Now(), downloads: make(map[string]downloadArtifact)}
 	s.mu.Lock()
 	if s.buildRunning {
 		s.mu.Unlock()
@@ -614,7 +642,30 @@ func (s *Server) runBuild(job *Job, projectDir string, formats []build.Format) {
 			item.Logs = append(item.Logs, message)
 		})
 	})
-	artifacts, err := s.build(ctx, projectDir, formats)
+	outputDir := ""
+	if s.artifactRoot != "" {
+		outputDir = filepath.Join(s.artifactRoot, job.ID)
+		defer os.RemoveAll(outputDir)
+	} else if s.outputRoot != "" {
+		outputDir = s.outputRoot
+	}
+	artifacts, err := s.build(ctx, projectDir, formats, outputDir)
+	downloads := make(map[string]downloadArtifact, len(artifacts))
+	if err == nil {
+		for _, artifact := range artifacts {
+			base := filepath.Base(artifact.Path)
+			if s.artifactRoot == "" {
+				downloads[base] = downloadArtifact{name: base, path: artifact.Path}
+				continue
+			}
+			data, readErr := os.ReadFile(artifact.Path)
+			if readErr != nil {
+				err = fmt.Errorf("Downloadausgabe einlesen: %w", readErr)
+				break
+			}
+			downloads[base] = downloadArtifact{name: base, data: data}
+		}
+	}
 	s.updateJob(job.ID, func(item *Job) {
 		if err != nil {
 			item.Status, item.Progress = "fehlgeschlagen", 100
@@ -624,9 +675,10 @@ func (s *Server) runBuild(job *Job, projectDir string, formats []build.Format) {
 		item.Status, item.Progress = "fertig", 100
 		for _, artifact := range artifacts {
 			base := filepath.Base(artifact.Path)
+			item.downloads[base] = downloads[base]
 			item.Artifacts = append(item.Artifacts, artifactLink{
 				Format: artifact.Format, Size: artifact.Size,
-				URL: "/artifacts/" + url.PathEscape(item.Project) + "/" + url.PathEscape(base),
+				URL: "/artifacts/" + url.PathEscape(item.ID) + "/" + url.PathEscape(base),
 			})
 			item.Logs = append(item.Logs, fmt.Sprintf("%s erzeugt: %s", artifact.Format, base))
 		}
@@ -687,17 +739,31 @@ func (s *Server) artifact(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	pub, err := s.openWorkspaceProject(parts[0])
-	if err != nil {
+	if filepath.Base(parts[1]) != parts[1] {
 		http.NotFound(w, r)
 		return
 	}
-	path, err := project.Within(pub.Dir, "Outputs", filepath.Base(parts[1]))
-	if err != nil {
+	s.mu.RLock()
+	job := s.jobs[parts[0]]
+	download := downloadArtifact{}
+	if job != nil {
+		download = job.downloads[parts[1]]
+	}
+	s.mu.RUnlock()
+	if download.name == "" {
 		http.NotFound(w, r)
 		return
 	}
-	http.ServeFile(w, r, path)
+	w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", download.name))
+	if download.data != nil {
+		http.ServeContent(w, r, download.name, time.Time{}, bytes.NewReader(download.data))
+		return
+	}
+	if download.path == "" {
+		http.NotFound(w, r)
+		return
+	}
+	http.ServeFile(w, r, download.path)
 }
 
 func (s *Server) openWorkspaceProject(name string) (project.Project, error) {
@@ -705,8 +771,7 @@ func (s *Server) openWorkspaceProject(name string) (project.Project, error) {
 	if name == "" || filepath.Base(name) != name || name == "." || name == ".." {
 		return project.Project{}, fmt.Errorf("ungültiger Projektname")
 	}
-	projectsDir := filepath.Join(s.workspace, "projects")
-	path := filepath.Join(projectsDir, name)
+	path := filepath.Join(s.projectsDir, name)
 	return project.Open(path)
 }
 
@@ -764,6 +829,7 @@ func Run(ctx context.Context, root, workspace string, stdout io.Writer) error {
 	httpServer := &http.Server{Handler: server, ReadHeaderTimeout: 5 * time.Second}
 	address := "http://" + listener.Addr().String()
 	server.localHost = listener.Addr().String()
+	server.outputRoot = filepath.Join(root, "Outputs")
 	server.lifecycle = newLocalLifecycle(2*time.Minute, 4*time.Second)
 	fmt.Fprintf(stdout, "OA-GUI läuft unter %s\nWorkspace: %s\nZum Beenden Browser-Tab schließen oder Strg+C drücken.\n", address, workspace)
 	go server.lifecycle.watch(ctx)
@@ -796,6 +862,12 @@ func RunServer(ctx context.Context, root, workspace, address string, stdout io.W
 	if err != nil {
 		return err
 	}
+	artifactRoot, err := os.MkdirTemp("", "oa-server-artifacts-*")
+	if err != nil {
+		return fmt.Errorf("temporären Downloadbereich anlegen: %w", err)
+	}
+	defer os.RemoveAll(artifactRoot)
+	server.artifactRoot = artifactRoot
 	listener, err := net.Listen("tcp", address)
 	if err != nil {
 		return fmt.Errorf("Serveradresse öffnen: %w", err)

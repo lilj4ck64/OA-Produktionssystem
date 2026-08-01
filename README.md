@@ -46,9 +46,10 @@ go run ./cmd/oa gui
 ```
 
 Die GUI bindet nur an `127.0.0.1`, öffnet den Standardbrowser und beendet sich
-nach dem Schließen des letzten Tabs. Ohne `--workspace` verwendet sie einen
-temporären Arbeitsordner. Mit `--workspace` bleiben importierte Projekte und
-Ausgaben zwischen Starts erhalten.
+nach dem Schließen des letzten Tabs. Ohne `--workspace` verwendet sie für die
+importierten Quelldaten einen temporären Arbeitsbereich, der beim Beenden
+gelöscht wird. Fertige Dateien werden davon getrennt dauerhaft in den zentralen
+Ordner `<Anwendungsroot>/Outputs/` geschrieben.
 
 Projekte können über die lokale Verzeichnisfreigabe oder als ZIP importiert
 werden. Der Workspace hat diese einfache Struktur:
@@ -58,8 +59,13 @@ werden. Der Workspace hat diese einfache Struktur:
 └── projects/
     └── <projekt>/
         ├── Strukturierte_Daten/
-        ├── Media/
-        └── Outputs/
+        └── Media/
+
+<Anwendungsroot>/
+└── Outputs/
+    ├── <projekt>-print.pdf
+    ├── <projekt>-web.pdf
+    └── <projekt>.epub
 ```
 
 ## Kleiner gemeinsamer Server
@@ -73,9 +79,11 @@ Personen verwenden denselben Workspace und sehen dieselben Projekte,
 Buildaufträge und Ausgaben. Es läuft höchstens ein Build gleichzeitig; weitere
 Buildversuche werden mit einer verständlichen Meldung abgelehnt.
 
-Jobs und Logs existieren nur im Arbeitsspeicher. Nach einem Neustart ist die
-Historie leer. Projektquellen und fertige Dateien bleiben im Workspace
-erhalten. Ein Backup besteht deshalb nur aus einer Kopie des Workspace.
+Jobs, Logs und fertige Downloads existieren nur im Arbeitsspeicher. Während des
+Builds benötigte Ausgabedateien liegen außerhalb des Workspace in einem
+flüchtigen Bereich und werden direkt nach dem Einlesen wieder gelöscht. Im
+Workspace bleiben nur die importierten Projektquellen; Ergebnisse werden über
+die Downloadlinks des Buildauftrags abgerufen.
 
 ### Zugriffsschutz
 
@@ -106,7 +114,10 @@ einem entsprechend geschützten privaten Netz oder VPN verwendet werden.
 
 Die GitHub-Action baut bei einem Tag `v*` native Pakete mit Go-Anwendung,
 Java-Runtime, Bibliotheken, Stylesheets und gemeinsamen Ressourcen. Auf dem
-Zielsystem werden daher weder Go noch Java noch Gradle benötigt.
+Zielsystem werden daher weder Go noch Java noch Gradle benötigt. Der
+Windows-GUI-Launcher und seine Java-Unterprozesse öffnen kein Konsolenfenster;
+unter Linux und macOS laufen dieselben Unterprozesse ohne plattformspezifische
+Fensteroptionen.
 
 ## Bewusste Grenzen
 

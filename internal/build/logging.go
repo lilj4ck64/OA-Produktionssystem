@@ -3,7 +3,6 @@ package build
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"oa-satzsystem/internal/java"
@@ -40,9 +39,9 @@ func logToolResult(ctx context.Context, tool string, result java.Result, runErr 
 	if runErr != nil {
 		status = fmt.Sprintf("fehlgeschlagen (Exitcode %d)", result.ExitCode)
 	}
-	message := fmt.Sprintf("%s: %s nach %s.", tool, status, result.Duration.Round(time.Millisecond))
-	if diagnostics := strings.TrimSpace(strings.TrimSpace(result.Stdout) + "\n" + strings.TrimSpace(result.Stderr)); diagnostics != "" {
-		message += "\n" + diagnostics
-	}
-	Log(ctx, message)
+	Log(ctx, fmt.Sprintf("%s: %s nach %s.", tool, status, result.Duration.Round(time.Millisecond)))
+}
+
+func logToolOutput(ctx context.Context, tool string) func(string) {
+	return func(line string) { Log(ctx, tool+": "+line) }
 }

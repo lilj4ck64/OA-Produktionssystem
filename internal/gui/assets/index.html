@@ -12,7 +12,7 @@
     <header>
       <p class="eyebrow">{{if .Local}}Lokale Browser-GUI{{else}}Gemeinsamer Server{{end}}</p>
       <h1>OA Satzsystem</h1>
-      <p>Projekt importieren, prüfen und als PDF oder EPUB bauen.</p>
+      <p>Projekt importieren und als PDF oder EPUB bauen.</p>
     </header>
 
     {{if .Message}}<div class="notice">{{.Message}}</div>{{end}}
@@ -22,7 +22,7 @@
       <h2>Projekt importieren</h2>
       {{if .Local}}
       <div id="folder-import">
-        <p>Wähle den vorhandenen Projektordner aus. Nach dem Build schreibt die GUI die fertigen Dateien mit deiner Browserfreigabe direkt in dessen Unterordner <code>Outputs</code>.</p>
+        <p>Wähle den vorhandenen Projektordner aus. Nach dem Build schreibt die GUI alle fertigen Dateien in den zentralen Ordner <code>Outputs</code> neben der Anwendung.</p>
         <button type="button" id="choose-folder">Projektordner auswählen</button>
         <p id="folder-status" role="status"></p>
       </div>
@@ -59,7 +59,6 @@
               <label><input type="checkbox" name="format" value="epub"> EPUB</label>
             </fieldset>
             <div class="actions">
-              <a class="button secondary" href="/validate?project={{.URLName}}">Prüfen</a>
               <button type="submit">Bauen</button>
             </div>
           </form>

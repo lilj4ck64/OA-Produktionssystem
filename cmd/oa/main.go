@@ -181,7 +181,7 @@ func runGUI(args []string, stdout, stderr io.Writer) int {
 	if !workspaceProvided {
 		workspace, err = os.MkdirTemp("", "oa-gui-workspace-*")
 		if err != nil {
-			fmt.Fprintf(stderr, "Temporären GUI-Workspace anlegen: %v\n", err)
+			fmt.Fprintf(stderr, "Temporären GUI-Arbeitsbereich anlegen: %v\n", err)
 			return exitFailure
 		}
 		defer os.RemoveAll(workspace)

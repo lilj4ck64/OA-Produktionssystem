@@ -18,14 +18,14 @@
       <h2>Fortschritt und Logs</h2>
       <progress id="progress" max="100" value="{{.Progress}}"></progress>
       <pre id="logs">{{.Logs}}</pre>
+      {{if .Local}}
+      <p id="save-status" class="notice" role="status">Die fertigen Dateien werden automatisch im Ordner <code>Outputs</code> neben der Anwendung gespeichert.</p>
+      {{end}}
       <div id="artifacts"></div>
-      <p id="save-status" role="status"></p>
-      <button type="button" id="save-folder" hidden>In den ausgewählten Ordner schreiben</button>
       <p><a class="button secondary" href="/">Zurück zur Übersicht</a></p>
     </section>
   </main>
   <script>window.OA_JOB_ID = {{.ID}};</script>
-  <script>window.OA_PROJECT_NAME = {{.Project}};</script>
   {{if .Local}}<script src="/static/lifecycle.js"></script>{{end}}
   <script src="/static/job.js"></script>
 </body>
