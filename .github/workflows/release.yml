@@ -60,9 +60,9 @@ jobs:
           mkdir -p "dist/$package/resources"
           binary="oa"
           if [[ "$GOOS" == "windows" ]]; then binary="oa.exe"; fi
-          go build -trimpath -ldflags="-s -w -X main.version=$VERSION" -o "dist/$package/$binary" ./cmd/oa
+          go build -trimpath -ldflags="-s -w" -o "dist/$package/$binary" ./cmd/oa
           gui_binary="OA-Satzsystem"
-          gui_ldflags="-s -w -X main.version=$VERSION -X main.defaultCommand=gui"
+          gui_ldflags="-s -w -X main.defaultCommand=gui"
           if [[ "$GOOS" == "windows" ]]; then
             gui_binary="$gui_binary.exe"
             gui_ldflags="$gui_ldflags -H windowsgui"

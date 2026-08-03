@@ -8,8 +8,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"runtime"
-	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -18,10 +16,6 @@ import (
 	"oa-satzsystem/internal/gui"
 	"oa-satzsystem/internal/project"
 )
-
-// version is intentionally a variable so release builds can override it with
-// -ldflags "-X main.version=v0.1.0".
-var version = "0.1.0-dev"
 
 // defaultCommand is set only for the separately packaged GUI launcher. The
 // regular oa binary keeps its command-line behavior, while the launcher can
@@ -56,19 +50,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 
 	switch args[0] {
-	case "version":
-		if len(args) != 1 {
-			printUsage(stderr)
-			return exitUsage
-		}
-		fmt.Fprintf(stdout, "oa %s\n", version)
-		return exitOK
-	case "doctor":
-		if len(args) != 1 {
-			printUsage(stderr)
-			return exitUsage
-		}
-		return runDoctor(stdout, stderr)
 	case "build":
 		return runBuild(args[1:], stdout, stderr)
 	case "validate":
@@ -91,8 +72,6 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "Verwendung: oa <Befehl> [Optionen]")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Befehle:")
-	fmt.Fprintln(w, "  version  Anwendungsversion anzeigen")
-	fmt.Fprintln(w, "  doctor   System und gefundene Ressourcen anzeigen")
 	fmt.Fprintln(w, "  validate <Projekt>")
 	fmt.Fprintln(w, "  build <Projekt> --format FORMAT [--format FORMAT ...] [--output ORDNER]")
 	fmt.Fprintln(w, "  gui [--workspace ORDNER]  Lokale Browser-GUI starten")
@@ -360,70 +339,4 @@ func findApplicationRoot() (string, error) {
 func directory(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.IsDir()
-}
-
-func runDoctor(stdout, stderr io.Writer) int {
-	resourceDir, resources, err := findResources()
-	if err != nil {
-		fmt.Fprintf(stderr, "Ressourcen konnten nicht untersucht werden: %v\n", err)
-		return 1
-	}
-
-	fmt.Fprintln(stdout, "OA-Systemdiagnose")
-	fmt.Fprintf(stdout, "Betriebssystem: %s\n", runtime.GOOS)
-	fmt.Fprintf(stdout, "Architektur:    %s\n", runtime.GOARCH)
-	fmt.Fprintf(stdout, "Version:        %s\n", version)
-	fmt.Fprintf(stdout, "Ressourcen:     %s\n", resourceDir)
-	if len(resources) == 0 {
-		fmt.Fprintln(stdout, "  (keine Ressourcen gefunden)")
-		return 0
-	}
-	for _, resource := range resources {
-		fmt.Fprintf(stdout, "  - %s\n", filepath.ToSlash(resource))
-	}
-	return 0
-}
-
-func findResources() (string, []string, error) {
-	candidates := make([]string, 0, 2)
-	if executable, err := os.Executable(); err == nil {
-		candidates = append(candidates, filepath.Join(filepath.Dir(executable), "resources"))
-	}
-	if cwd, err := os.Getwd(); err == nil {
-		candidates = append(candidates, filepath.Join(cwd, "resources"))
-	}
-
-	for _, candidate := range candidates {
-		info, err := os.Stat(candidate)
-		if err != nil {
-			if os.IsNotExist(err) {
-				continue
-			}
-			return "", nil, err
-		}
-		if !info.IsDir() {
-			continue
-		}
-
-		entries, err := os.ReadDir(candidate)
-		if err != nil {
-			return "", nil, err
-		}
-		names := make([]string, 0, len(entries))
-		for _, entry := range entries {
-			if entry.Name() == ".gitkeep" {
-				continue
-			}
-			names = append(names, entry.Name())
-		}
-		sort.Strings(names)
-
-		absolute, err := filepath.Abs(candidate)
-		if err != nil {
-			return "", nil, err
-		}
-		return absolute, names, nil
-	}
-
-	return "nicht gefunden", nil, nil
 }

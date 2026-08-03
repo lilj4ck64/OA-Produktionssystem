@@ -1,129 +1,81 @@
 # OA-Satzsystem
 
-Das OA-Satzsystem erzeugt aus einem XML-Projekt Print-PDF, Web-PDF und EPUB.
-Es ist bewusst als kleines lokales Werkzeug und als gemeinsamer Server für ein
-kleines, vertrauenswürdiges Team ausgelegt.
+Das OA-Satzsystem ist eine plattformübergreifende Open-Source-Anwendung zur
+Erstellung wissenschaftlicher Publikationen. Aus XML-Dateien in BITS-Struktur
+erzeugt es Print-PDF, Web-PDF und EPUB. Dafür sind keine Kenntnisse der
+zugrunde liegenden Satzwerkzeuge erforderlich.
 
-Der dauerhafte Zustand liegt ausschließlich im Dateisystem. Es gibt keine
-Datenbank, Benutzerverwaltung oder persistente Jobhistorie.
+Die Ausgabe basiert auf standardisierten Stylesheets. Gestaltungsvorgaben
+können über die Konfigurationsdateien im Ordner `Stylesheets` angepasst werden.
+
+## Anwendung
+
+Fertige Pakete für Windows, Linux und macOS stehen unter
+[Releases](https://github.com/lilj4ck64/OA-Produktionssystem/releases) zur
+Verfügung. Sie enthalten alle benötigten Werkzeuge; eine separate Installation
+von Go oder Java ist nicht erforderlich.
+
+Nach dem Entpacken wird die Anwendung über `OA-Satzsystem` beziehungsweise
+`OA-Satzsystem.exe` gestartet. Die Bedienoberfläche öffnet sich im Browser.
+Dort kann ein Projektordner oder eine ZIP-Datei ausgewählt und anschließend in
+den gewünschten Formaten ausgegeben werden. Die fertigen Dateien werden im
+Ordner `Outputs` neben der Anwendung gespeichert.
+
+Der Ordner `Example/Musterbuch` enthält ein vollständiges Beispielprojekt.
+
+## Projektstruktur
+
+Ein Projekt muss den gleichen Namen wie seine XML-Datei tragen:
+
+```text
+Musterbuch/
+├── Strukturierte_Daten/
+│   └── Musterbuch.xml
+└── Media/
+    └── Images/
+```
+
+## Kommandozeile
+
+Neben der grafischen Oberfläche steht das Programm `oa` für die
+Kommandozeile zur Verfügung:
+
+```text
+oa validate <projekt>
+oa build <projekt> --format <format> [--format <format> ...] [--output <ordner>]
+```
+
+Unterstützte Formate sind `print-pdf`, `web-pdf` und `epub`. Wird kein
+Ausgabeordner angegeben, legt das Programm die Dateien im Unterordner
+`Outputs` des Projekts ab.
+
+Beispiel:
+
+```powershell
+oa build Example/Musterbuch --format print-pdf --format web-pdf --format epub
+```
+
+Eine Übersicht aller Befehle zeigt `oa help`.
 
 ## Entwicklung
 
-Benötigt werden Go gemäß `go.mod` und ein aktuelles JDK. Die Java-Bibliotheken
-für FOP, Saxon HE und EPUBCheck werden einmalig bereitgestellt:
+Für die Entwicklung werden Go gemäß `go.mod` und JDK 21 benötigt. Die
+Java-Bibliotheken und die gebündelte Laufzeitumgebung werden einmalig mit
+Gradle bereitgestellt:
 
 ```powershell
 cd java-toolchain
-.\gradlew.bat syncRuntimeLibs
+.\gradlew.bat syncRuntimeLibs jlinkRuntime
 cd ..
-```
-
-Unter Linux oder macOS wird `./gradlew` verwendet.
-
-## CLI
-
-```text
-oa version
-oa doctor
-oa validate <projekt>
-oa build <projekt> --format <format> [--format <format> ...] [--output <ordner>]
-oa gui [--workspace <ordner>]
-oa serve --workspace <ordner> [--listen <adresse>]
-```
-
-Unterstützte Formate sind `print-pdf`, `web-pdf` und `epub`. Ohne `--output`
-werden Ergebnisse nach `<projekt>/Outputs/` geschrieben.
-
-```powershell
-go run ./cmd/oa build Projekte/Musterbuch `
-  --format print-pdf --format web-pdf --format epub
-```
-
-## Lokale Browser-GUI
-
-```powershell
 go run ./cmd/oa gui
 ```
 
-Die GUI bindet nur an `127.0.0.1`, öffnet den Standardbrowser und beendet sich
-nach dem Schließen des letzten Tabs. Ohne `--workspace` verwendet sie für die
-importierten Quelldaten einen temporären Arbeitsbereich, der beim Beenden
-gelöscht wird. Fertige Dateien werden davon getrennt dauerhaft in den zentralen
-Ordner `<Anwendungsroot>/Outputs/` geschrieben.
+Unter Linux und macOS wird `./gradlew` anstelle von `gradlew.bat` verwendet.
 
-Projekte können über die lokale Verzeichnisfreigabe oder als ZIP importiert
-werden. Der Workspace hat diese einfache Struktur:
+## Lizenz
 
-```text
-<workspace>/
-└── projects/
-    └── <projekt>/
-        ├── Strukturierte_Daten/
-        └── Media/
+Copyright (C) 2021 HTWK Leipzig, Projekt OA-STRUKTKOMM
 
-<Anwendungsroot>/
-└── Outputs/
-    ├── <projekt>-print.pdf
-    ├── <projekt>-web.pdf
-    └── <projekt>.epub
-```
-
-## Kleiner gemeinsamer Server
-
-```powershell
-go run ./cmd/oa serve --workspace .server-workspace
-```
-
-Standardmäßig ist der Server unter `http://127.0.0.1:8080` erreichbar. Alle
-Personen verwenden denselben Workspace und sehen dieselben Projekte,
-Buildaufträge und Ausgaben. Es läuft höchstens ein Build gleichzeitig; weitere
-Buildversuche werden mit einer verständlichen Meldung abgelehnt.
-
-Jobs, Logs und fertige Downloads existieren nur im Arbeitsspeicher. Während des
-Builds benötigte Ausgabedateien liegen außerhalb des Workspace in einem
-flüchtigen Bereich und werden direkt nach dem Einlesen wieder gelöscht. Im
-Workspace bleiben nur die importierten Projektquellen; Ergebnisse werden über
-die Downloadlinks des Buildauftrags abgerufen.
-
-### Zugriffsschutz
-
-Der Server enthält absichtlich keine eigene Benutzerverwaltung. Er ist für
-höchstens sechs vertrauenswürdige Personen in einem kontrollierten Umfeld
-gedacht.
-
-- Für rein lokalen Betrieb bleibt die Standardadresse `127.0.0.1:8080`.
-- Für entfernten Zugriff ist ein privates Netz/VPN oder ein authentifizierender
-  HTTPS-Reverse-Proxy erforderlich.
-- Der OA-Port darf nicht ungeschützt ins Internet gestellt werden.
-
-Eine Nginx-Beispielkonfiguration mit HTTP-Basic-Authentifizierung liegt unter
-`resources/nginx-oa.conf.example`. Die Zugangsdaten werden dort außerhalb der
-OA-Anwendung verwaltet. Eine Bindung wie `--listen 0.0.0.0:8080` darf nur in
-einem entsprechend geschützten privaten Netz oder VPN verwendet werden.
-
-## Exitcodes
-
-| Code | Bedeutung |
-|---:|---|
-| 0 | Befehl erfolgreich |
-| 1 | Laufzeit-, Ressourcen- oder Buildfehler |
-| 2 | ungültiger CLI-Aufruf |
-| 3 | ungültiges Projekt |
-
-## Releasepakete
-
-Die GitHub-Action baut bei einem Tag `v*` native Pakete mit Go-Anwendung,
-Java-Runtime, Bibliotheken, Stylesheets und gemeinsamen Ressourcen. Auf dem
-Zielsystem werden daher weder Go noch Java noch Gradle benötigt. Der
-Windows-GUI-Launcher und seine Java-Unterprozesse öffnen kein Konsolenfenster;
-unter Linux und macOS laufen dieselben Unterprozesse ohne plattformspezifische
-Fensteroptionen.
-
-## Bewusste Grenzen
-
-- eine einzelne Anwendungsinstanz;
-- ein Build zur Zeit;
-- ein gemeinsamer Workspace ohne private Benutzerbereiche;
-- keine Datenbank und keine dauerhafte Jobhistorie;
-- keine eigene Authentifizierung;
-- keine verteilten Worker oder horizontale Skalierung.
+Das OA-Satzsystem ist freie Software und wird unter der GNU General Public
+License Version 3 veröffentlicht. Weitere Informationen enthält die Datei
+[LICENSE](LICENSE).
