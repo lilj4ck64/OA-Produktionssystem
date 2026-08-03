@@ -3,7 +3,6 @@ package gui
 
 import (
 	"archive/zip"
-	"bytes"
 	"context"
 	"crypto/rand"
 	"embed"
@@ -43,15 +42,27 @@ type Server struct {
 	templates    *template.Template
 	build        buildFunc
 	mux          *http.ServeMux
+	projectMu    sync.Mutex
 	mu           sync.RWMutex
 	jobs         map[string]*Job
-	buildRunning bool
+	queue        []queuedBuild
+	queueWake    chan struct{}
+	workerWG     sync.WaitGroup
+	requestMu    sync.Mutex
+	requestWG    sync.WaitGroup
+	shuttingDown bool
 	// outputRoot is set only in the desktop GUI. All finished local builds are
 	// published into the single Outputs directory beside the application.
 	outputRoot string
 	// artifactRoot is set only in server mode. Server builds publish into this
 	// process-owned temporary directory instead of a project's Outputs folder.
 	artifactRoot string
+	// temporaryProjects is enabled only by oa serve. Imported sources are then
+	// removed as soon as their queued build has finished or been cancelled.
+	temporaryProjects bool
+	jobRetention      time.Duration
+	downloadGrace     time.Duration
+	projectRetention  time.Duration
 	// localHost is set only by oa gui. Requiring this exact loopback host blocks
 	// other websites from reaching the unauthenticated local API via DNS rebinding.
 	localHost string
@@ -127,21 +138,42 @@ func (l *localLifecycle) watch(ctx context.Context) {
 
 // Job is the browser-visible state of one asynchronous build.
 type Job struct {
-	ID        string         `json:"id"`
-	Project   string         `json:"project"`
-	Status    string         `json:"status"`
-	Progress  int            `json:"progress"`
-	Logs      []string       `json:"logs"`
-	Artifacts []artifactLink `json:"artifacts"`
-	Created   time.Time      `json:"-"`
-	downloads map[string]downloadArtifact
+	ID              string         `json:"id"`
+	Project         string         `json:"project"`
+	Status          string         `json:"status"`
+	Progress        int            `json:"progress"`
+	Logs            []string       `json:"logs"`
+	Artifacts       []artifactLink `json:"artifacts"`
+	Created         time.Time      `json:"-"`
+	QueuePosition   int            `json:"queuePosition,omitempty"`
+	downloads       map[string]downloadArtifact
+	projectDir      string
+	expiresAt       time.Time
+	activeDownloads int
+	cleaning        bool
 }
 
 type downloadArtifact struct {
 	name string
 	path string
-	data []byte
 }
+
+type queuedBuild struct {
+	jobID      string
+	projectDir string
+	formats    []build.Format
+}
+
+const (
+	serverAreaPrefix        = ".oa-server-"
+	serverAreaMarker        = ".oa-server-owned"
+	serverAreaMarkerValue   = "oa-satzsystem temporary server area\n"
+	serverAreaStaleAfter    = 24 * time.Hour
+	defaultJobRetention     = time.Hour
+	defaultDownloadGrace    = 10 * time.Minute
+	defaultProjectRetention = time.Hour
+	defaultCleanupInterval  = time.Minute
+)
 
 type artifactLink struct {
 	Format build.Format `json:"format"`
@@ -151,11 +183,6 @@ type artifactLink struct {
 
 type projectView struct {
 	Name, Path string
-}
-
-// New creates the shared handler used by the local GUI and small server.
-func New(root, workspace string) (*Server, error) {
-	return newServer(root, filepath.Join(workspace, "projects"))
 }
 
 func newServer(root, projectsDir string) (*Server, error) {
@@ -182,13 +209,20 @@ func newServer(root, projectsDir string) (*Server, error) {
 			configured.OutputDir = outputDir
 			return configured.Build(ctx, projectPath, formats)
 		},
-		jobs: make(map[string]*Job), mux: http.NewServeMux(),
+		jobs: make(map[string]*Job), mux: http.NewServeMux(), queueWake: make(chan struct{}, 1),
+		jobRetention: defaultJobRetention, downloadGrace: defaultDownloadGrace,
+		projectRetention: defaultProjectRetention,
 	}
 	server.routes()
 	return server, nil
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if !s.beginRequest() {
+		http.Error(w, "Server wird beendet.", http.StatusServiceUnavailable)
+		return
+	}
+	defer s.requestWG.Done()
 	// These headers tell browsers not to guess file types, embed the UI in other
 	// sites, or load scripts from unexpected locations.
 	w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -222,6 +256,22 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.mux.ServeHTTP(w, r)
+}
+
+func (s *Server) beginRequest() bool {
+	s.requestMu.Lock()
+	defer s.requestMu.Unlock()
+	if s.shuttingDown {
+		return false
+	}
+	s.requestWG.Add(1)
+	return true
+}
+
+func (s *Server) stopRequests() {
+	s.requestMu.Lock()
+	s.shuttingDown = true
+	s.requestMu.Unlock()
 }
 
 func (s *Server) routes() {
@@ -324,7 +374,9 @@ func (s *Server) importProject(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 	projectsDir := s.projectsDir
+	s.projectMu.Lock()
 	name, err := importZIP(file, header, projectsDir)
+	s.projectMu.Unlock()
 	if err != nil {
 		s.redirectMessage(w, r, "Import fehlgeschlagen: "+err.Error())
 		return
@@ -590,6 +642,8 @@ func (s *Server) startBuild(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Nur POST ist erlaubt.", http.StatusMethodNotAllowed)
 		return
 	}
+	s.projectMu.Lock()
+	defer s.projectMu.Unlock()
 	pub, err := s.openWorkspaceProject(r.FormValue("project"))
 	if err != nil {
 		s.redirectMessage(w, r, "Build abgelehnt: "+err.Error())
@@ -609,66 +663,149 @@ func (s *Server) startBuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := randomID()
-	job := &Job{ID: id, Project: pub.Name, Status: "läuft", Progress: 10, Logs: []string{"Build wurde gestartet."}, Created: time.Now(), downloads: make(map[string]downloadArtifact)}
-	s.mu.Lock()
-	if s.buildRunning {
-		s.mu.Unlock()
-		s.redirectMessage(w, r, "Es läuft bereits ein Build. Bitte nach dessen Abschluss erneut versuchen.")
-		return
+	job := &Job{
+		ID: id, Project: pub.Name, Status: "wartet", Progress: 0,
+		Logs: []string{"Build wurde in die Warteschlange aufgenommen."}, Created: time.Now(),
+		downloads: make(map[string]downloadArtifact), projectDir: pub.Dir,
 	}
-	s.buildRunning = true
+	s.mu.Lock()
+	for _, existing := range s.jobs {
+		if filepath.Clean(existing.projectDir) == filepath.Clean(pub.Dir) && (existing.Status == "wartet" || existing.Status == "läuft") {
+			s.mu.Unlock()
+			s.redirectMessage(w, r, "Für dieses Projekt ist bereits ein Build eingeplant.")
+			return
+		}
+	}
+	s.queue = append(s.queue, queuedBuild{jobID: id, projectDir: pub.Dir, formats: append([]build.Format(nil), formats...)})
+	job.QueuePosition = len(s.queue)
 	s.jobs[id] = job
 	s.mu.Unlock()
-	go s.runBuild(job, pub.Dir, formats)
+	s.wakeWorker()
 	http.Redirect(w, r, "/jobs/"+id, http.StatusSeeOther)
 }
 
-func (s *Server) runBuild(job *Job, projectDir string, formats []build.Format) {
+func (s *Server) wakeWorker() {
+	select {
+	case s.queueWake <- struct{}{}:
+	default:
+	}
+}
+
+func (s *Server) startWorker(ctx context.Context) {
+	s.workerWG.Add(1)
+	go func() {
+		defer s.workerWG.Done()
+		for {
+			request, ok := s.nextBuild(ctx)
+			if !ok {
+				s.cancelQueuedBuilds()
+				return
+			}
+			s.runBuild(ctx, request)
+		}
+	}()
+}
+
+func (s *Server) nextBuild(ctx context.Context) (queuedBuild, bool) {
+	for {
+		select {
+		case <-ctx.Done():
+			return queuedBuild{}, false
+		default:
+		}
+		s.mu.Lock()
+		if len(s.queue) > 0 {
+			request := s.queue[0]
+			s.queue = s.queue[1:]
+			for index, queued := range s.queue {
+				if job := s.jobs[queued.jobID]; job != nil {
+					job.QueuePosition = index + 1
+				}
+			}
+			if job := s.jobs[request.jobID]; job != nil {
+				job.QueuePosition = 0
+				job.Status, job.Progress = "läuft", 10
+				job.Logs = append(job.Logs, "Build wurde gestartet.")
+			}
+			s.mu.Unlock()
+			return request, true
+		}
+		s.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			return queuedBuild{}, false
+		case <-s.queueWake:
+		}
+	}
+}
+
+func (s *Server) cancelQueuedBuilds() {
+	s.mu.Lock()
+	queued := append([]queuedBuild(nil), s.queue...)
+	s.queue = nil
+	for _, request := range queued {
+		if job := s.jobs[request.jobID]; job != nil {
+			job.Status, job.Progress, job.QueuePosition = "abgebrochen", 100, 0
+			job.Logs = append(job.Logs, "Server wird beendet; wartender Build wurde abgebrochen.")
+		}
+	}
+	s.mu.Unlock()
+	if s.temporaryProjects {
+		s.projectMu.Lock()
+		defer s.projectMu.Unlock()
+		for _, request := range queued {
+			_ = os.RemoveAll(request.projectDir)
+		}
+	}
+}
+
+func (s *Server) runBuild(parent context.Context, request queuedBuild) {
 	// Browser requests return immediately; the expensive Java work continues in
 	// the background while the job page polls the small JSON status endpoint.
-	defer func() {
-		s.mu.Lock()
-		s.buildRunning = false
-		s.mu.Unlock()
-	}()
-	s.updateJob(job.ID, func(item *Job) {
+	if s.temporaryProjects {
+		defer func() {
+			s.projectMu.Lock()
+			defer s.projectMu.Unlock()
+			_ = os.RemoveAll(request.projectDir)
+		}()
+	}
+	s.updateJob(request.jobID, func(item *Job) {
 		item.Status, item.Progress = "läuft", 20
 		item.Logs = append(item.Logs, "Projekt wurde geprüft.", "Buildkern wird gestartet.")
 	})
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(parent, 10*time.Minute)
 	defer cancel()
 	ctx = build.WithLogger(ctx, func(message string) {
-		s.updateJob(job.ID, func(item *Job) {
+		s.updateJob(request.jobID, func(item *Job) {
 			item.Logs = append(item.Logs, message)
 		})
 	})
 	outputDir := ""
 	if s.artifactRoot != "" {
-		outputDir = filepath.Join(s.artifactRoot, job.ID)
-		defer os.RemoveAll(outputDir)
+		outputDir = filepath.Join(s.artifactRoot, request.jobID)
 	} else if s.outputRoot != "" {
 		outputDir = s.outputRoot
 	}
-	artifacts, err := s.build(ctx, projectDir, formats, outputDir)
+	artifacts, err := s.build(ctx, request.projectDir, request.formats, outputDir)
 	downloads := make(map[string]downloadArtifact, len(artifacts))
 	if err == nil {
 		for _, artifact := range artifacts {
 			base := filepath.Base(artifact.Path)
-			if s.artifactRoot == "" {
-				downloads[base] = downloadArtifact{name: base, path: artifact.Path}
-				continue
-			}
-			data, readErr := os.ReadFile(artifact.Path)
-			if readErr != nil {
-				err = fmt.Errorf("Downloadausgabe einlesen: %w", readErr)
-				break
-			}
-			downloads[base] = downloadArtifact{name: base, data: data}
+			downloads[base] = downloadArtifact{name: base, path: artifact.Path}
 		}
 	}
-	s.updateJob(job.ID, func(item *Job) {
+	if err != nil && s.artifactRoot != "" {
+		_ = os.RemoveAll(outputDir)
+	}
+	s.updateJob(request.jobID, func(item *Job) {
+		item.expiresAt = time.Now().Add(s.retention())
 		if err != nil {
-			item.Status, item.Progress = "fehlgeschlagen", 100
+			if parent.Err() != nil {
+				item.Status = "abgebrochen"
+			} else {
+				item.Status = "fehlgeschlagen"
+			}
+			item.Progress = 100
 			item.Logs = append(item.Logs, "Fehler: "+err.Error())
 			return
 		}
@@ -685,6 +822,13 @@ func (s *Server) runBuild(job *Job, projectDir string, formats []build.Format) {
 	})
 }
 
+func (s *Server) retention() time.Duration {
+	if s.jobRetention > 0 {
+		return s.jobRetention
+	}
+	return defaultJobRetention
+}
+
 func (s *Server) updateJob(id string, change func(*Job)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -699,6 +843,7 @@ func (s *Server) jobPage(w http.ResponseWriter, r *http.Request) {
 	job := s.jobs[id]
 	if job != nil {
 		copy := *job
+		copy.Logs = append([]string(nil), job.Logs...)
 		job = &copy
 	}
 	s.mu.RUnlock()
@@ -708,9 +853,9 @@ func (s *Server) jobPage(w http.ResponseWriter, r *http.Request) {
 	}
 	data := struct {
 		ID, Project, Status, Logs string
-		Progress                  int
+		Progress, QueuePosition   int
 		Local                     bool
-	}{ID: job.ID, Project: job.Project, Status: job.Status, Logs: strings.Join(job.Logs, "\n"), Progress: job.Progress, Local: s.localHost != ""}
+	}{ID: job.ID, Project: job.Project, Status: job.Status, Logs: strings.Join(job.Logs, "\n"), Progress: job.Progress, QueuePosition: job.QueuePosition, Local: s.localHost != ""}
 	s.render(w, "job", data)
 }
 
@@ -743,22 +888,33 @@ func (s *Server) artifact(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	s.mu.RLock()
+	s.mu.Lock()
 	job := s.jobs[parts[0]]
 	download := downloadArtifact{}
-	if job != nil {
+	if job != nil && !job.cleaning {
 		download = job.downloads[parts[1]]
+		if download.name != "" {
+			job.activeDownloads++
+		}
 	}
-	s.mu.RUnlock()
+	s.mu.Unlock()
 	if download.name == "" {
 		http.NotFound(w, r)
 		return
 	}
+	defer func() {
+		s.mu.Lock()
+		if current := s.jobs[parts[0]]; current != nil {
+			current.activeDownloads--
+			grace := s.downloadGrace
+			if grace <= 0 {
+				grace = defaultDownloadGrace
+			}
+			current.expiresAt = time.Now().Add(grace)
+		}
+		s.mu.Unlock()
+	}()
 	w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", download.name))
-	if download.data != nil {
-		http.ServeContent(w, r, download.name, time.Time{}, bytes.NewReader(download.data))
-		return
-	}
 	if download.path == "" {
 		http.NotFound(w, r)
 		return
@@ -777,18 +933,22 @@ func (s *Server) openWorkspaceProject(name string) (project.Project, error) {
 
 func (s *Server) recentJobs() []jobView {
 	s.mu.RLock()
-	jobs := make([]*Job, 0, len(s.jobs))
+	type recentJob struct {
+		view    jobView
+		created time.Time
+	}
+	jobs := make([]recentJob, 0, len(s.jobs))
 	for _, job := range s.jobs {
-		jobs = append(jobs, job)
+		jobs = append(jobs, recentJob{view: jobView{ID: job.ID, Project: job.Project, Status: job.Status}, created: job.Created})
 	}
 	s.mu.RUnlock()
-	sort.Slice(jobs, func(i, j int) bool { return jobs[i].Created.After(jobs[j].Created) })
+	sort.Slice(jobs, func(i, j int) bool { return jobs[i].created.After(jobs[j].created) })
 	if len(jobs) > 20 {
 		jobs = jobs[:20]
 	}
 	result := make([]jobView, 0, len(jobs))
 	for _, job := range jobs {
-		result = append(result, jobView{ID: job.ID, Project: job.Project, Status: job.Status})
+		result = append(result, job.view)
 	}
 	return result
 }
@@ -816,9 +976,150 @@ func randomID() string {
 	return hex.EncodeToString(bytes[:])
 }
 
-// Run starts the GUI on loopback and opens it in the default browser.
-func Run(ctx context.Context, root, workspace string, stdout io.Writer) error {
-	server, err := New(root, workspace)
+func createServerArea(parent string) (string, string, error) {
+	parent, err := filepath.Abs(parent)
+	if err != nil {
+		return "", "", fmt.Errorf("temporären Serverbereich auflösen: %w", err)
+	}
+	parent = filepath.Clean(parent)
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		return "", "", fmt.Errorf("Elternverzeichnis für Serverbereich anlegen: %w", err)
+	}
+	if err := cleanupOrphanedServerAreas(parent, time.Now()); err != nil {
+		return "", "", err
+	}
+	area, err := os.MkdirTemp(parent, serverAreaPrefix+"*")
+	if err != nil {
+		return "", "", fmt.Errorf("temporären Serverbereich anlegen: %w", err)
+	}
+	marker := filepath.Join(area, serverAreaMarker)
+	if err := os.WriteFile(marker, []byte(serverAreaMarkerValue), 0o600); err != nil {
+		_ = os.RemoveAll(area)
+		return "", "", fmt.Errorf("Serverbereich markieren: %w", err)
+	}
+	return area, marker, nil
+}
+
+func cleanupOrphanedServerAreas(parent string, now time.Time) error {
+	entries, err := os.ReadDir(parent)
+	if err != nil {
+		return fmt.Errorf("alte Serverbereiche auflisten: %w", err)
+	}
+	for _, entry := range entries {
+		if !strings.HasPrefix(entry.Name(), serverAreaPrefix) || entry.Type()&os.ModeSymlink != 0 || !entry.IsDir() {
+			continue
+		}
+		area := filepath.Join(parent, entry.Name())
+		marker := filepath.Join(area, serverAreaMarker)
+		info, err := os.Lstat(marker)
+		if err != nil || !info.Mode().IsRegular() || now.Sub(info.ModTime()) < serverAreaStaleAfter {
+			continue
+		}
+		content, err := os.ReadFile(marker)
+		if err != nil || string(content) != serverAreaMarkerValue {
+			continue
+		}
+		relative, err := filepath.Rel(parent, area)
+		if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			return fmt.Errorf("unsicherer verwaister Serverbereich: %s", area)
+		}
+		if err := os.RemoveAll(area); err != nil {
+			return fmt.Errorf("verwaisten Serverbereich löschen: %w", err)
+		}
+	}
+	return nil
+}
+
+func (s *Server) maintainTemporaryData(ctx context.Context, marker string) {
+	ticker := time.NewTicker(defaultCleanupInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-ticker.C:
+			_ = os.Chtimes(marker, now, now)
+			s.cleanupExpiredJobs(now)
+			s.cleanupStaleProjects(now)
+		}
+	}
+}
+
+func (s *Server) cleanupExpiredJobs(now time.Time) {
+	type candidate struct {
+		id   string
+		path string
+	}
+	s.mu.Lock()
+	var candidates []candidate
+	for id, job := range s.jobs {
+		if !job.cleaning && !job.expiresAt.IsZero() && !now.Before(job.expiresAt) && job.activeDownloads == 0 {
+			job.cleaning = true
+			candidates = append(candidates, candidate{id: id, path: filepath.Join(s.artifactRoot, id)})
+		}
+	}
+	s.mu.Unlock()
+	for _, item := range candidates {
+		if err := os.RemoveAll(item.path); err != nil {
+			s.mu.Lock()
+			if job := s.jobs[item.id]; job != nil {
+				job.cleaning = false
+			}
+			s.mu.Unlock()
+			continue
+		}
+		s.mu.Lock()
+		if job := s.jobs[item.id]; job != nil && job.cleaning {
+			delete(s.jobs, item.id)
+		}
+		s.mu.Unlock()
+	}
+}
+
+func (s *Server) cleanupStaleProjects(now time.Time) {
+	retention := s.projectRetention
+	if retention <= 0 {
+		retention = defaultProjectRetention
+	}
+	s.projectMu.Lock()
+	defer s.projectMu.Unlock()
+	active := make(map[string]bool)
+	s.mu.RLock()
+	for _, job := range s.jobs {
+		if job.Status == "wartet" || job.Status == "läuft" {
+			active[filepath.Clean(job.projectDir)] = true
+		}
+	}
+	s.mu.RUnlock()
+	entries, err := os.ReadDir(s.projectsDir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || entry.Type()&os.ModeSymlink != 0 || strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		path := filepath.Join(s.projectsDir, entry.Name())
+		info, err := entry.Info()
+		if err == nil && !active[filepath.Clean(path)] && now.Sub(info.ModTime()) >= retention {
+			_ = os.RemoveAll(path)
+		}
+	}
+}
+
+// Run starts the GUI with a process-owned temporary project area on loopback
+// and opens it in the default browser.
+func Run(ctx context.Context, root string, stdout io.Writer) (returnErr error) {
+	workspace, err := os.MkdirTemp("", "oa-gui-workspace-*")
+	if err != nil {
+		return fmt.Errorf("temporären GUI-Arbeitsbereich anlegen: %w", err)
+	}
+	defer func() {
+		if err := os.RemoveAll(workspace); err != nil && returnErr == nil {
+			returnErr = fmt.Errorf("temporären GUI-Arbeitsbereich löschen: %w", err)
+		}
+	}()
+	server, err := newServer(root, filepath.Join(workspace, "projects"))
 	if err != nil {
 		return err
 	}
@@ -830,14 +1131,27 @@ func Run(ctx context.Context, root, workspace string, stdout io.Writer) error {
 	address := "http://" + listener.Addr().String()
 	server.localHost = listener.Addr().String()
 	server.outputRoot = filepath.Join(root, "Outputs")
+	server.temporaryProjects = true
 	server.lifecycle = newLocalLifecycle(2*time.Minute, 4*time.Second)
-	fmt.Fprintf(stdout, "OA-GUI läuft unter %s\nWorkspace: %s\nZum Beenden Browser-Tab schließen oder Strg+C drücken.\n", address, workspace)
+	workerCtx, stopWorker := context.WithCancel(ctx)
+	server.startWorker(workerCtx)
+	defer func() {
+		stopWorker()
+		server.workerWG.Wait()
+	}()
+	defer func() {
+		server.stopRequests()
+		_ = httpServer.Close()
+		server.requestWG.Wait()
+	}()
+	fmt.Fprintf(stdout, "OA-GUI läuft unter %s\nTemporärer Projektbereich: %s\nZum Beenden Browser-Tab schließen oder Strg+C drücken.\n", address, workspace)
 	go server.lifecycle.watch(ctx)
 	go func() {
 		select {
 		case <-ctx.Done():
 		case <-server.lifecycle.done:
 		}
+		server.stopRequests()
 		shutdown, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		_ = httpServer.Shutdown(shutdown)
@@ -854,31 +1168,56 @@ func Run(ctx context.Context, root, workspace string, stdout io.Writer) error {
 	return err
 }
 
-// RunServer starts the shared-workspace UI without opening a browser. Access
-// control belongs to the private network, VPN or authenticating reverse proxy
-// in front of this deliberately small server.
-func RunServer(ctx context.Context, root, workspace, address string, stdout io.Writer) error {
-	server, err := New(root, workspace)
+// RunServer starts the shared UI in a process-owned temporary area without
+// opening a browser. Access control belongs to the private network, VPN or an
+// authenticating service in front of this deliberately small server.
+func RunServer(ctx context.Context, root, address string, stdout io.Writer) error {
+	return runServerIn(ctx, root, os.TempDir(), address, stdout)
+}
+
+func runServerIn(ctx context.Context, root, tempParent, address string, stdout io.Writer) (returnErr error) {
+	serverArea, marker, err := createServerArea(tempParent)
 	if err != nil {
 		return err
 	}
-	artifactRoot, err := os.MkdirTemp("", "oa-server-artifacts-*")
+	defer func() {
+		if err := os.RemoveAll(serverArea); err != nil && returnErr == nil {
+			returnErr = fmt.Errorf("temporären Serverbereich löschen: %w", err)
+		}
+	}()
+	server, err := newServer(root, filepath.Join(serverArea, "projects"))
 	if err != nil {
+		return err
+	}
+	server.artifactRoot = filepath.Join(serverArea, "artifacts")
+	server.temporaryProjects = true
+	if err := os.MkdirAll(server.artifactRoot, 0o755); err != nil {
 		return fmt.Errorf("temporären Downloadbereich anlegen: %w", err)
 	}
-	defer os.RemoveAll(artifactRoot)
-	server.artifactRoot = artifactRoot
 	listener, err := net.Listen("tcp", address)
 	if err != nil {
 		return fmt.Errorf("Serveradresse öffnen: %w", err)
 	}
 	httpServer := &http.Server{
 		Handler: server, ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout: 30 * time.Second, WriteTimeout: 15 * time.Minute, IdleTimeout: 60 * time.Second,
+		WriteTimeout: 15 * time.Minute, IdleTimeout: 60 * time.Second,
 	}
-	fmt.Fprintf(stdout, "OA-Server läuft unter http://%s\nGemeinsamer Workspace: %s\nBeenden mit Strg+C.\n", listener.Addr(), workspace)
+	workerCtx, stopWorker := context.WithCancel(ctx)
+	server.startWorker(workerCtx)
+	go server.maintainTemporaryData(workerCtx, marker)
+	defer func() {
+		stopWorker()
+		server.workerWG.Wait()
+	}()
+	defer func() {
+		server.stopRequests()
+		_ = httpServer.Close()
+		server.requestWG.Wait()
+	}()
+	fmt.Fprintf(stdout, "OA-Server läuft unter http://%s\nTemporärer Serverbereich: %s\nBeenden mit Strg+C.\n", listener.Addr(), serverArea)
 	go func() {
 		<-ctx.Done()
+		server.stopRequests()
 		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = httpServer.Shutdown(shutdown)

@@ -13,7 +13,7 @@
     <header>
       <p class="eyebrow">Buildauftrag</p>
       <h1>{{.Project}}</h1>
-      <p id="status">Status: {{.Status}}</p>
+      <p id="status">Status: {{.Status}}{{if .QueuePosition}} (Position {{.QueuePosition}}){{end}}</p>
     </header>
     <section class="card">
       <h2>Fortschritt und Logs</h2>

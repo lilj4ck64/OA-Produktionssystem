@@ -7,7 +7,8 @@
       const response = await fetch('/api/jobs/' + encodeURIComponent(id));
       if (!response.ok) throw new Error('Buildstatus ist nicht erreichbar.');
       const job = await response.json();
-      document.querySelector('#status').textContent = 'Status: ' + job.status;
+      const queue = job.queuePosition ? ` (Position ${job.queuePosition})` : '';
+      document.querySelector('#status').textContent = 'Status: ' + job.status + queue;
       document.querySelector('#progress').value = job.progress;
       document.querySelector('#logs').textContent = job.logs.join('\n');
       document.querySelector('#artifacts').replaceChildren(...job.artifacts.map(item => {

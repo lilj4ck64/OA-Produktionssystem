@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -74,19 +75,19 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "Befehle:")
 	fmt.Fprintln(w, "  validate <Projekt>")
 	fmt.Fprintln(w, "  build <Projekt> --format FORMAT [--format FORMAT ...] [--output ORDNER]")
-	fmt.Fprintln(w, "  gui [--workspace ORDNER]  Lokale Browser-GUI starten")
-	fmt.Fprintln(w, "  serve --workspace ORDNER [--listen ADRESSE]  Kleinen gemeinsamen Server starten")
+	fmt.Fprintln(w, "  gui  Lokale Browser-GUI mit temporären Arbeitsdaten starten")
+	fmt.Fprintln(w, "  serve [--listen LOOPBACK:PORT]  Server mit temporären Arbeitsdaten starten")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Formate: print-pdf, web-pdf, epub")
 }
 
-// runServe starts the small shared-workspace server and keeps it alive until
-// the operating system asks the program to stop.
+// runServe starts the small shared server. Uploaded projects live only in a
+// process-owned area below the operating system's temporary directory.
 func runServe(args []string, stdout, stderr io.Writer) int {
-	workspace, address, err := parseServeArgs(args)
+	address, err := parseServeArgs(args)
 	if err != nil {
 		fmt.Fprintf(stderr, "Ungültiger Aufruf: %v\n", err)
-		fmt.Fprintln(stderr, "Verwendung: oa serve --workspace ORDNER [--listen 127.0.0.1:8080]")
+		fmt.Fprintln(stderr, "Verwendung: oa serve [--listen 127.0.0.1:8080]")
 		return exitUsage
 	}
 	root, err := findApplicationRoot()
@@ -96,60 +97,62 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	if err := gui.RunServer(ctx, root, workspace, address, stdout); err != nil {
+	if err := gui.RunServer(ctx, root, address, stdout); err != nil {
 		fmt.Fprintf(stderr, "Server fehlgeschlagen: %v\n", err)
 		return exitFailure
 	}
 	return exitOK
 }
 
-func parseServeArgs(args []string) (workspace, address string, err error) {
+func parseServeArgs(args []string) (address string, err error) {
 	address = "127.0.0.1:8080"
 	for i := 0; i < len(args); i++ {
 		key, value := args[i], ""
 		if strings.Contains(key, "=") {
 			parts := strings.SplitN(key, "=", 2)
 			key, value = parts[0], parts[1]
-		} else if key == "--workspace" || key == "--listen" {
+		} else if key == "--listen" {
 			if i+1 >= len(args) {
-				return "", "", fmt.Errorf("Wert nach %s fehlt", key)
+				return "", fmt.Errorf("Wert nach %s fehlt", key)
 			}
 			i++
 			value = args[i]
 		}
 		switch key {
-		case "--workspace":
-			if workspace != "" {
-				return "", "", fmt.Errorf("--workspace darf nur einmal angegeben werden")
-			}
-			if strings.TrimSpace(value) == "" {
-				return "", "", fmt.Errorf("Workspace fehlt")
-			}
-			absolute, pathErr := filepath.Abs(value)
-			if pathErr != nil {
-				return "", "", fmt.Errorf("Workspace auflösen: %w", pathErr)
-			}
-			workspace = filepath.Clean(absolute)
 		case "--listen":
 			if strings.TrimSpace(value) == "" {
-				return "", "", fmt.Errorf("Serveradresse fehlt")
+				return "", fmt.Errorf("Serveradresse fehlt")
+			}
+			if err := validateLoopbackAddress(value); err != nil {
+				return "", err
 			}
 			address = value
 		default:
-			return "", "", fmt.Errorf("unbekannte Option %q", key)
+			return "", fmt.Errorf("unbekannte Option %q", key)
 		}
 	}
-	if workspace == "" {
-		return "", "", fmt.Errorf("--workspace ist erforderlich")
+	return address, nil
+}
+
+func validateLoopbackAddress(address string) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return fmt.Errorf("ungültige Serveradresse %q: %w", address, err)
 	}
-	return workspace, address, nil
+	if strings.EqualFold(host, "localhost") {
+		return nil
+	}
+	ip := net.ParseIP(host)
+	if ip == nil || !ip.IsLoopback() {
+		return fmt.Errorf("Serveradresse muss Loopback verwenden (127.0.0.1, localhost oder ::1)")
+	}
+	return nil
 }
 
 func runGUI(args []string, stdout, stderr io.Writer) int {
-	workspace, workspaceProvided, err := parseGUIArgs(args)
-	if err != nil {
-		fmt.Fprintf(stderr, "Ungültiger Aufruf: %v\n", err)
-		fmt.Fprintln(stderr, "Verwendung: oa gui [--workspace ORDNER]")
+	if len(args) != 0 {
+		fmt.Fprintln(stderr, "Ungültiger Aufruf: gui akzeptiert keine Optionen")
+		fmt.Fprintln(stderr, "Verwendung: oa gui")
 		return exitUsage
 	}
 	root, err := findApplicationRoot()
@@ -157,46 +160,13 @@ func runGUI(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "Anwendungsressourcen nicht gefunden: %v\n", err)
 		return exitFailure
 	}
-	if !workspaceProvided {
-		workspace, err = os.MkdirTemp("", "oa-gui-workspace-*")
-		if err != nil {
-			fmt.Fprintf(stderr, "Temporären GUI-Arbeitsbereich anlegen: %v\n", err)
-			return exitFailure
-		}
-		defer os.RemoveAll(workspace)
-	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	if err := gui.Run(ctx, root, workspace, stdout); err != nil {
+	if err := gui.Run(ctx, root, stdout); err != nil {
 		fmt.Fprintf(stderr, "GUI fehlgeschlagen: %v\n", err)
 		return exitFailure
 	}
 	return exitOK
-}
-
-func parseGUIArgs(args []string) (workspace string, provided bool, err error) {
-	if len(args) == 0 {
-		return "", false, nil
-	}
-	if len(args) == 2 && args[0] == "--workspace" && strings.TrimSpace(args[1]) != "" {
-		absolute, err := filepath.Abs(args[1])
-		if err != nil {
-			return "", false, fmt.Errorf("Workspace-Pfad auflösen: %w", err)
-		}
-		return filepath.Clean(absolute), true, nil
-	}
-	if len(args) == 1 && strings.HasPrefix(args[0], "--workspace=") {
-		value := strings.TrimSpace(strings.TrimPrefix(args[0], "--workspace="))
-		if value == "" {
-			return "", false, fmt.Errorf("Workspace-Pfad fehlt")
-		}
-		absolute, err := filepath.Abs(value)
-		if err != nil {
-			return "", false, fmt.Errorf("Workspace-Pfad auflösen: %w", err)
-		}
-		return filepath.Clean(absolute), true, nil
-	}
-	return "", false, fmt.Errorf("unbekannte Optionen")
 }
 
 func runBuild(args []string, stdout, stderr io.Writer) int {
