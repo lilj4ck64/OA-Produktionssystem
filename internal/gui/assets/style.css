@@ -202,17 +202,11 @@ summary:focus-visible,
   outline-offset: 3px;
 }
 
-nav,
 .actions {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
   align-items: center;
-}
-
-.inline {
-  display: inline;
-  margin: 0;
 }
 
 .dropzone {
@@ -272,8 +266,7 @@ nav,
   padding-bottom: 0;
 }
 
-.projects p,
-.muted {
+.projects p {
   color: var(--ink-soft);
 }
 
@@ -310,40 +303,6 @@ input[type="checkbox"] {
   margin-right: 5px;
   accent-color: var(--htwk-blue);
   vertical-align: -.15em;
-}
-
-input[type="text"],
-input[type="password"] {
-  width: 100%;
-  min-height: 46px;
-  padding: 10px 12px;
-  border: 2px solid #77828b;
-  border-radius: 0;
-  background: #fff;
-  color: var(--ink);
-  font: inherit;
-}
-
-input[type="text"]:hover,
-input[type="password"]:hover {
-  border-color: var(--ink);
-}
-
-.form-grid {
-  display: grid;
-  max-width: 540px;
-  gap: 19px;
-}
-
-.form-grid button {
-  justify-self: start;
-}
-
-.user-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 22px;
 }
 
 .notice {
@@ -446,21 +405,13 @@ pre {
     padding: 22px 12px;
   }
 
-  .actions,
-  nav,
-  .user-row {
+  .actions {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .actions > *,
-  nav > *,
-  .user-row button {
+  .actions > * {
     width: 100%;
-  }
-
-  nav .inline {
-    display: block;
   }
 }
 

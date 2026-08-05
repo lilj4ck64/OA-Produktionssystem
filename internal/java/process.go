@@ -26,11 +26,6 @@ type Runner struct {
 	Executable string
 }
 
-// Run starts Java with discrete arguments and observes cancellation via ctx.
-func (r Runner) Run(ctx context.Context, dir string, args ...string) (Result, error) {
-	return r.RunWithOutput(ctx, dir, nil, args...)
-}
-
 // RunWithOutput additionally forwards complete stdout and stderr lines while
 // the process is running. The returned Result still contains both full streams
 // so command-line errors retain their complete diagnostics.
