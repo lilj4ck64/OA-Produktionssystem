@@ -164,6 +164,12 @@ func (s *Server) routes() {
 	}
 	static := http.FileServer(http.FS(staticFS))
 	s.mux.Handle("/static/", http.StripPrefix("/static/", static))
+	fontsRoot := filepath.Join(s.root, "Shared", "Fonts")
+	if _, err := os.Stat(fontsRoot); os.IsNotExist(err) {
+		fontsRoot = filepath.Join(s.root, "resources", "Shared", "Fonts")
+	}
+	fonts := http.FileServer(http.Dir(fontsRoot))
+	s.mux.Handle("/Shared/Fonts/", http.StripPrefix("/Shared/Fonts/", fonts))
 	s.mux.HandleFunc("/", s.home)
 	s.mux.HandleFunc("/import", s.importProject)
 	s.mux.HandleFunc("/import-folder", s.importFolder)
