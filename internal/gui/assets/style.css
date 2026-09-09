@@ -390,11 +390,88 @@ pre {
   white-space: pre-wrap;
 }
 
-#artifacts a {
+.section-heading {
+  display: flex;
+  gap: 20px;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.section-heading h2,
+.section-heading .eyebrow {
+  margin-bottom: 0;
+}
+
+.artifact-actions,
+.artifact-tabs,
+.epub-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.artifact-tabs {
+  border-bottom: 1px solid var(--line);
+}
+
+.artifact-tab {
+  min-height: 42px;
+  margin-bottom: -1px;
+  border: 1px solid var(--line);
+  border-bottom-color: var(--line);
+  background: var(--surface-muted);
+  color: var(--ink);
+}
+
+.artifact-tab[aria-selected="true"] {
+  border-color: var(--htwk-blue);
+  border-bottom-color: var(--surface);
+  background: var(--surface);
+  color: var(--htwk-blue);
+}
+
+.artifact-frame {
   display: block;
-  width: fit-content;
-  margin: 9px 0;
-  font-weight: 600;
+  width: 100%;
+  height: min(76vh, 900px);
+  min-height: 520px;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+
+.preview-message {
+  margin: 0;
+  padding: 22px;
+  border: 1px solid var(--line);
+  background: var(--surface-muted);
+}
+
+.preview-message.error {
+  color: #7d1a05;
+}
+
+.epub-controls {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-bottom: 0;
+  background: var(--surface-muted);
+}
+
+.epub-controls button {
+  min-height: 40px;
+  padding: 8px 14px;
+}
+
+.epub-controls select {
+  min-height: 40px;
+  max-width: min(430px, 100%);
+  padding: 7px 34px 7px 10px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
 }
 
 @media (max-width: 620px) {
@@ -428,6 +505,26 @@ pre {
 
   .actions > * {
     width: 100%;
+  }
+
+  .section-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .artifact-actions > *,
+  .artifact-tabs > * {
+    flex: 1 1 auto;
+  }
+
+  .artifact-frame {
+    height: 68vh;
+    min-height: 420px;
+  }
+
+  .epub-controls select {
+    flex: 1 1 100%;
+    order: -1;
   }
 }
 

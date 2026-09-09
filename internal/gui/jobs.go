@@ -48,9 +48,11 @@ type queuedBuild struct {
 }
 
 type artifactLink struct {
-	Format build.Format `json:"format"`
-	Size   int64        `json:"size"`
-	URL    string       `json:"url"`
+	Format      build.Format `json:"format"`
+	Size        int64        `json:"size"`
+	URL         string       `json:"url"`
+	DownloadURL string       `json:"downloadUrl"`
+	PreviewURL  string       `json:"previewUrl"`
 }
 
 func (s *Server) startBuild(w http.ResponseWriter, r *http.Request) {
@@ -237,9 +239,14 @@ func (s *Server) runBuild(parent context.Context, request queuedBuild) {
 		for _, artifact := range artifacts {
 			base := filepath.Base(artifact.Path)
 			item.downloads[base] = downloads[base]
+			artifactURL := "/artifacts/" + url.PathEscape(item.ID) + "/" + url.PathEscape(base)
+			previewURL := artifactURL
+			if artifact.Format == build.EPUB {
+				previewURL = "/epub-preview/" + url.PathEscape(item.ID) + "/manifest"
+			}
 			item.Artifacts = append(item.Artifacts, artifactLink{
-				Format: artifact.Format, Size: artifact.Size,
-				URL: "/artifacts/" + url.PathEscape(item.ID) + "/" + url.PathEscape(base),
+				Format: artifact.Format, Size: artifact.Size, URL: artifactURL,
+				DownloadURL: artifactURL + "?download=1", PreviewURL: previewURL,
 			})
 		}
 	})
@@ -313,6 +320,10 @@ func (s *Server) jobJSON(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) artifact(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, "Nur GET und HEAD sind erlaubt.", http.StatusMethodNotAllowed)
+		return
+	}
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/artifacts/"), "/")
 	if len(parts) != 2 {
 		http.NotFound(w, r)
@@ -322,38 +333,73 @@ func (s *Server) artifact(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	s.mu.Lock()
-	job := s.jobs[parts[0]]
-	download := downloadArtifact{}
-	if job != nil && !job.cleaning {
-		download = job.downloads[parts[1]]
-		if download.name != "" {
-			job.activeDownloads++
-		}
-	}
-	s.mu.Unlock()
-	if download.name == "" {
+	download, ok := s.acquireArtifact(parts[0], parts[1])
+	if !ok {
 		http.NotFound(w, r)
 		return
 	}
-	defer func() {
-		s.mu.Lock()
-		if current := s.jobs[parts[0]]; current != nil {
-			current.activeDownloads--
-			grace := s.downloadGrace
-			if grace <= 0 {
-				grace = defaultDownloadGrace
-			}
-			current.expiresAt = time.Now().Add(grace)
-		}
-		s.mu.Unlock()
-	}()
-	w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", download.name))
+	defer s.releaseArtifact(parts[0])
+	disposition := "inline"
+	if r.URL.Query().Has("download") {
+		disposition = "attachment"
+	} else {
+		// Build results may be embedded only by this GUI. The default response
+		// headers intentionally deny framing everywhere else.
+		w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'self'")
+	}
+	w.Header().Set("Content-Disposition", fmt.Sprintf("%s; filename=%q", disposition, download.name))
 	if download.path == "" {
 		http.NotFound(w, r)
 		return
 	}
 	http.ServeFile(w, r, download.path)
+}
+
+func (s *Server) acquireArtifact(jobID, name string) (downloadArtifact, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	job := s.jobs[jobID]
+	if job == nil || job.cleaning {
+		return downloadArtifact{}, false
+	}
+	artifact := job.downloads[name]
+	if artifact.name == "" {
+		return downloadArtifact{}, false
+	}
+	job.activeDownloads++
+	return artifact, true
+}
+
+func (s *Server) acquireEPUBArtifact(jobID string) (downloadArtifact, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	job := s.jobs[jobID]
+	if job == nil || job.cleaning {
+		return downloadArtifact{}, false
+	}
+	for _, artifact := range job.downloads {
+		if strings.EqualFold(filepath.Ext(artifact.name), ".epub") {
+			job.activeDownloads++
+			return artifact, true
+		}
+	}
+	return downloadArtifact{}, false
+}
+
+func (s *Server) releaseArtifact(jobID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if job := s.jobs[jobID]; job != nil {
+		if job.activeDownloads > 0 {
+			job.activeDownloads--
+		}
+		grace := s.downloadGrace
+		if grace <= 0 {
+			grace = defaultDownloadGrace
+		}
+		job.expiresAt = time.Now().Add(grace)
+	}
 }
 
 func (s *Server) openWorkspaceProject(name string) (project.Project, error) {

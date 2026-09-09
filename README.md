@@ -19,7 +19,9 @@ Nach dem Entpacken wird die Anwendung über `OA-Satzsystem` beziehungsweise
 `OA-Satzsystem.exe` gestartet. Die Bedienoberfläche öffnet sich im Browser.
 Dort kann ein Projektordner oder eine ZIP-Datei ausgewählt und anschließend in
 den gewünschten Formaten ausgegeben werden. Die fertigen Dateien werden im
-Ordner `Outputs` neben der Anwendung gespeichert.
+Ordner `Outputs` neben der Anwendung gespeichert. Nach einem Build lassen sich
+Print- und Web-PDF direkt in der Ergebnisansicht prüfen. Für EPUB steht dort
+eine integrierte Vorschau mit Abschnittsnavigation und Schriftgrößenwahl bereit.
 
 Der Ordner `Example/Musterbuch` enthält ein vollständiges Beispielprojekt.
 

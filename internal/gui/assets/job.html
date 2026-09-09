@@ -26,8 +26,18 @@
       {{if .Local}}
       <p id="save-status" class="notice" role="status">Die fertigen Dateien werden automatisch im Ordner <code>Outputs</code> neben der Anwendung gespeichert.</p>
       {{end}}
-      <div id="artifacts"></div>
       <p><a class="button secondary" href="/">Zurück zur Übersicht</a></p>
+    </section>
+    <section class="card" id="results" hidden>
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Build-Ergebnis</p>
+          <h2>Ausgaben prüfen</h2>
+        </div>
+        <div class="artifact-actions" id="artifact-actions"></div>
+      </div>
+      <div class="artifact-tabs" id="artifact-tabs" role="tablist" aria-label="Ausgabeformat"></div>
+      <div id="artifact-preview" role="tabpanel"></div>
     </section>
   </main>
   <script>window.OA_JOB_ID = {{.ID}};</script>

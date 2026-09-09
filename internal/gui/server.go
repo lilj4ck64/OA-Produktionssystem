@@ -179,4 +179,5 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/local-session/heartbeat", s.localSessionHeartbeat)
 	s.mux.HandleFunc("/api/local-session/close", s.localSessionClose)
 	s.mux.HandleFunc("/artifacts/", s.artifact)
+	s.mux.HandleFunc("/epub-preview/", s.epubPreview)
 }
