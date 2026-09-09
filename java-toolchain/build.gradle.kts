@@ -32,6 +32,7 @@ val runtimeLibs = configurations.create("runtimeLibs") {
 
 dependencies {
     runtimeLibs("org.apache.xmlgraphics:fop:$fopVersion")
+    runtimeLibs("net.sf.offo:fop-hyph:2.0")
     runtimeLibs("net.sf.saxon:Saxon-HE:$saxonVersion")
     runtimeLibs("org.w3c:epubcheck:$epubCheckVersion") {
         exclude(group = "org.slf4j", module = "slf4j-nop")
