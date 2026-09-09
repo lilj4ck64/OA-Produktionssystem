@@ -24,6 +24,7 @@ type Job struct {
 	Project         string         `json:"project"`
 	Status          string         `json:"status"`
 	Progress        int            `json:"progress"`
+	ProgressMessage string         `json:"progressMessage"`
 	Logs            []string       `json:"logs"`
 	Artifacts       []artifactLink `json:"artifacts"`
 	Created         time.Time      `json:"-"`
@@ -80,7 +81,7 @@ func (s *Server) startBuild(w http.ResponseWriter, r *http.Request) {
 	id := randomID()
 	job := &Job{
 		ID: id, Project: pub.Name, Status: "wartet", Progress: 0,
-		Logs: []string{"Build wurde in die Warteschlange aufgenommen."}, Created: time.Now(),
+		ProgressMessage: "Build wurde in die Warteschlange aufgenommen.", Created: time.Now(),
 		downloads: make(map[string]downloadArtifact), projectDir: pub.Dir,
 	}
 	s.mu.Lock()
@@ -140,7 +141,7 @@ func (s *Server) nextBuild(ctx context.Context) (queuedBuild, bool) {
 			if job := s.jobs[request.jobID]; job != nil {
 				job.QueuePosition = 0
 				job.Status, job.Progress = "läuft", 10
-				job.Logs = append(job.Logs, "Build wurde gestartet.")
+				job.ProgressMessage = "Build wurde gestartet."
 			}
 			s.mu.Unlock()
 			return request, true
@@ -161,7 +162,7 @@ func (s *Server) cancelQueuedBuilds() {
 	for _, request := range queued {
 		if job := s.jobs[request.jobID]; job != nil {
 			job.Status, job.Progress, job.QueuePosition = "abgebrochen", 100, 0
-			job.Logs = append(job.Logs, "Server wird beendet; wartender Build wurde abgebrochen.")
+			job.ProgressMessage = "Server wird beendet; wartender Build wurde abgebrochen."
 		}
 	}
 	s.mu.Unlock()
@@ -186,13 +187,19 @@ func (s *Server) runBuild(parent context.Context, request queuedBuild) {
 	}
 	s.updateJob(request.jobID, func(item *Job) {
 		item.Status, item.Progress = "läuft", 20
-		item.Logs = append(item.Logs, "Projekt wurde geprüft.", "Buildkern wird gestartet.")
+		item.ProgressMessage = "Projekt wurde geprüft. Buildkern wird gestartet."
 	})
 	ctx, cancel := context.WithTimeout(parent, 10*time.Minute)
 	defer cancel()
-	ctx = build.WithLogger(ctx, func(message string) {
+	ctx = build.WithLogger(ctx, func(event build.LogEvent) {
 		s.updateJob(request.jobID, func(item *Job) {
-			item.Logs = append(item.Logs, message)
+			if event.Kind == build.LogProgress {
+				item.ProgressMessage = event.Message
+				return
+			}
+			if showInGUILog(event) {
+				item.Logs = append(item.Logs, event.String())
+			}
 		})
 	})
 	outputDir := ""
@@ -221,10 +228,12 @@ func (s *Server) runBuild(parent context.Context, request queuedBuild) {
 				item.Status = "fehlgeschlagen"
 			}
 			item.Progress = 100
-			item.Logs = append(item.Logs, "Fehler: "+err.Error())
+			item.ProgressMessage = "Build fehlgeschlagen."
+			item.Logs = append(item.Logs, "Fehler: "+firstLine(err.Error()))
 			return
 		}
 		item.Status, item.Progress = "fertig", 100
+		item.ProgressMessage = "Alle Ausgaben wurden erfolgreich erzeugt."
 		for _, artifact := range artifacts {
 			base := filepath.Base(artifact.Path)
 			item.downloads[base] = downloads[base]
@@ -232,9 +241,19 @@ func (s *Server) runBuild(parent context.Context, request queuedBuild) {
 				Format: artifact.Format, Size: artifact.Size,
 				URL: "/artifacts/" + url.PathEscape(item.ID) + "/" + url.PathEscape(base),
 			})
-			item.Logs = append(item.Logs, fmt.Sprintf("%s erzeugt: %s", artifact.Format, base))
 		}
 	})
+}
+
+func showInGUILog(event build.LogEvent) bool {
+	return event.Kind == build.LogToolOutput
+}
+
+func firstLine(message string) string {
+	if index := strings.IndexByte(message, '\n'); index >= 0 {
+		return strings.TrimSpace(message[:index])
+	}
+	return strings.TrimSpace(message)
 }
 
 func (s *Server) retention() time.Duration {
@@ -267,10 +286,10 @@ func (s *Server) jobPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data := struct {
-		ID, Project, Status, Logs string
-		Progress, QueuePosition   int
-		Local                     bool
-	}{ID: job.ID, Project: job.Project, Status: job.Status, Logs: strings.Join(job.Logs, "\n"), Progress: job.Progress, QueuePosition: job.QueuePosition, Local: s.localHost != ""}
+		ID, Project, Status, ProgressMessage, Logs string
+		Progress, QueuePosition                    int
+		Local                                      bool
+	}{ID: job.ID, Project: job.Project, Status: job.Status, ProgressMessage: job.ProgressMessage, Logs: strings.Join(job.Logs, "\n"), Progress: job.Progress, QueuePosition: job.QueuePosition, Local: s.localHost != ""}
 	s.render(w, "job", data)
 }
 

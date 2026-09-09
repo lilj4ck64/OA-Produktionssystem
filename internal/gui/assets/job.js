@@ -10,6 +10,7 @@
       const queue = job.queuePosition ? ` (Position ${job.queuePosition})` : '';
       document.querySelector('#status').textContent = 'Status: ' + job.status + queue;
       document.querySelector('#progress').value = job.progress;
+      document.querySelector('#progress-message').textContent = job.progressMessage;
       document.querySelector('#logs').textContent = job.logs.join('\n');
       document.querySelector('#artifacts').replaceChildren(...job.artifacts.map(item => {
         const link = document.createElement('a');

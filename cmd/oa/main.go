@@ -187,6 +187,9 @@ func runBuild(args []string, stdout, stderr io.Writer) int {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
+	ctx = build.WithLogger(ctx, func(event build.LogEvent) {
+		fmt.Fprintln(stdout, event.String())
+	})
 	engine := build.Engine{Root: root, OutputDir: outputDir}
 	artifacts, err := engine.Build(ctx, projectPath, formats)
 	if err != nil {
