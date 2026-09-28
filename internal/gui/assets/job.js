@@ -217,12 +217,22 @@
       document.querySelector('#progress').value = job.progress;
       document.querySelector('#progress-message').textContent = job.progressMessage;
       document.querySelector('#logs').textContent = job.logs.join('\n');
+      const logDownload = document.querySelector('#log-download');
+      const logDownloadRow = document.querySelector('#log-download-row');
+      const finished = job.status === 'fertig' || job.status === 'fehlgeschlagen' || job.status === 'abgebrochen';
+      if (logDownload && logDownloadRow && finished && job.logDownloadUrl) {
+        logDownload.href = job.logDownloadUrl;
+        logDownload.textContent = `Logdatei herunterladen (${formatBytes(job.logSize)})`;
+        logDownloadRow.hidden = false;
+      }
       renderArtifacts(job.artifacts || []);
       const saveStatus = document.querySelector('#save-status');
       if (saveStatus && job.status === 'fertig') {
-        saveStatus.textContent = 'Alle Ausgaben wurden automatisch im Ordner Outputs neben der Anwendung gespeichert.';
+        saveStatus.textContent = 'Alle Ausgaben wurden im Ordner Outputs und die vollständige Logdatei im Ordner Log neben der Anwendung gespeichert.';
       } else if (saveStatus && job.status === 'fehlgeschlagen') {
-        saveStatus.textContent = 'Der Build ist fehlgeschlagen. Es wurden keine neuen Ausgaben gespeichert.';
+        saveStatus.textContent = job.logFileName
+          ? 'Der Build ist fehlgeschlagen. Die vollständige Logdatei wurde im Ordner Log neben der Anwendung gespeichert.'
+          : 'Der Build ist fehlgeschlagen. Die Logdatei konnte nicht gespeichert werden.';
         saveStatus.classList.add('error');
       }
       if (job.status === 'wartet' || job.status === 'läuft') setTimeout(poll, 700);

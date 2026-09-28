@@ -45,6 +45,9 @@ type Server struct {
 	// artifactRoot is set only in server mode. Server builds publish into this
 	// process-owned temporary directory instead of a project's Outputs folder.
 	artifactRoot string
+	// logRoot is set only in the desktop GUI. Complete build logs are stored in
+	// the Log directory beside the application.
+	logRoot string
 	// temporaryProjects is enabled only by oa serve. Imported sources are then
 	// removed as soon as their queued build has finished or been cancelled.
 	temporaryProjects bool

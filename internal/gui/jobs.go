@@ -27,6 +27,9 @@ type Job struct {
 	ProgressMessage string         `json:"progressMessage"`
 	Logs            []string       `json:"logs"`
 	Artifacts       []artifactLink `json:"artifacts"`
+	LogFileName     string         `json:"logFileName,omitempty"`
+	LogDownloadURL  string         `json:"logDownloadUrl,omitempty"`
+	LogSize         int64          `json:"logSize,omitempty"`
 	Created         time.Time      `json:"-"`
 	QueuePosition   int            `json:"queuePosition,omitempty"`
 	downloads       map[string]downloadArtifact
@@ -193,7 +196,9 @@ func (s *Server) runBuild(parent context.Context, request queuedBuild) {
 	})
 	ctx, cancel := context.WithTimeout(parent, 10*time.Minute)
 	defer cancel()
+	var completeLog []string
 	ctx = build.WithLogger(ctx, func(event build.LogEvent) {
+		completeLog = append(completeLog, event.String())
 		s.updateJob(request.jobID, func(item *Job) {
 			if event.Kind == build.LogProgress {
 				item.ProgressMessage = event.Message
@@ -221,8 +226,22 @@ func (s *Server) runBuild(parent context.Context, request queuedBuild) {
 	if err != nil && s.artifactRoot != "" {
 		_ = os.RemoveAll(outputDir)
 	}
+	if err != nil {
+		completeLog = append(completeLog, "Fehler: "+err.Error())
+	}
+	logName, logPath, logSize, logErr := s.writeBuildLog(request.jobID, completeLog)
 	s.updateJob(request.jobID, func(item *Job) {
 		item.expiresAt = time.Now().Add(s.retention())
+		if logErr != nil {
+			item.Logs = append(item.Logs, "Logdatei konnte nicht gespeichert werden: "+firstLine(logErr.Error()))
+		} else {
+			item.LogFileName = logName
+			item.LogSize = logSize
+			if s.artifactRoot != "" {
+				item.downloads[logName] = downloadArtifact{name: logName, path: logPath}
+				item.LogDownloadURL = "/artifacts/" + url.PathEscape(item.ID) + "/" + url.PathEscape(logName) + "?download=1"
+			}
+		}
 		if err != nil {
 			if parent.Err() != nil {
 				item.Status = "abgebrochen"
@@ -250,6 +269,56 @@ func (s *Server) runBuild(parent context.Context, request queuedBuild) {
 			})
 		}
 	})
+}
+
+func (s *Server) writeBuildLog(jobID string, lines []string) (string, string, int64, error) {
+	s.mu.RLock()
+	job := s.jobs[jobID]
+	if job == nil {
+		s.mu.RUnlock()
+		return "", "", 0, fmt.Errorf("Buildauftrag nicht gefunden")
+	}
+	name := logFileName(job.Project, job.Created)
+	s.mu.RUnlock()
+
+	directory := s.logRoot
+	if directory == "" && s.artifactRoot != "" {
+		directory = filepath.Join(s.artifactRoot, jobID)
+	}
+	if directory == "" {
+		return "", "", 0, fmt.Errorf("kein Speicherort für Logdateien konfiguriert")
+	}
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		return "", "", 0, fmt.Errorf("Log-Ordner anlegen: %w", err)
+	}
+	path := filepath.Join(directory, name)
+	content := strings.Join(lines, "\n")
+	if content != "" {
+		content += "\n"
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		return "", "", 0, fmt.Errorf("Logdatei schreiben: %w", err)
+	}
+	return name, path, int64(len([]byte(content))), nil
+}
+
+func logFileName(projectName string, created time.Time) string {
+	return safeFileComponent(projectName) + "_" + created.Format("2006-01-02_15-04-05") + ".log"
+}
+
+func safeFileComponent(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.Map(func(character rune) rune {
+		if character < 32 || strings.ContainsRune(`<>:"/\\|?*`, character) {
+			return '_'
+		}
+		return character
+	}, value)
+	value = strings.Trim(value, ". ")
+	if value == "" {
+		return "Projekt"
+	}
+	return value
 }
 
 func showInGUILog(event build.LogEvent) bool {

@@ -23,8 +23,11 @@
         <summary>Log</summary>
         <pre id="logs">{{.Logs}}</pre>
       </details>
+      {{if not .Local}}
+      <p id="log-download-row" hidden><a id="log-download" class="button secondary">Logdatei herunterladen</a></p>
+      {{end}}
       {{if .Local}}
-      <p id="save-status" class="notice" role="status">Die fertigen Dateien werden automatisch im Ordner <code>Outputs</code> neben der Anwendung gespeichert.</p>
+      <p id="save-status" class="notice" role="status">Die fertigen Dateien werden automatisch im Ordner <code>Outputs</code> und die vollständige Logdatei im Ordner <code>Log</code> neben der Anwendung gespeichert.</p>
       {{end}}
       <p><a class="button secondary" href="/">Zurück zur Übersicht</a></p>
     </section>

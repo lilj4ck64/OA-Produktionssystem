@@ -38,6 +38,7 @@ func Run(ctx context.Context, root string, stdout io.Writer) (returnErr error) {
 	address := "http://" + listener.Addr().String()
 	server.localHost = listener.Addr().String()
 	server.outputRoot = filepath.Join(root, "Outputs")
+	server.logRoot = filepath.Join(root, "Log")
 	server.temporaryProjects = true
 	server.lifecycle = newLocalLifecycle(2*time.Minute, 4*time.Second)
 	workerCtx, stopWorker := context.WithCancel(ctx)

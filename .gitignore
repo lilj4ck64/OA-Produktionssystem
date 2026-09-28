@@ -18,3 +18,4 @@ Desktop.ini
 
 # Central publication artifacts are not regular project sources.
 /Outputs/
+/Log/

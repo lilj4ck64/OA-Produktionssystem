@@ -19,9 +19,13 @@ Nach dem Entpacken wird die Anwendung über `OA-Satzsystem` beziehungsweise
 `OA-Satzsystem.exe` gestartet. Die Bedienoberfläche öffnet sich im Browser.
 Dort kann ein Projektordner oder eine ZIP-Datei ausgewählt und anschließend in
 den gewünschten Formaten ausgegeben werden. Die fertigen Dateien werden im
-Ordner `Outputs` neben der Anwendung gespeichert. Nach einem Build lassen sich
+Ordner `Outputs` neben der Anwendung gespeichert. Die vollständige Build-
+Logdatei wird unter `Log` als `Projektname_Datum_Uhrzeit.log` abgelegt. Nach
+einem Build lassen sich
 Print- und Web-PDF direkt in der Ergebnisansicht prüfen. Für EPUB steht dort
 eine integrierte Vorschau mit Abschnittsnavigation und Schriftgrößenwahl bereit.
+In der Server-Version steht die Logdatei nach dem Build wie die erzeugten
+Publikationsdateien zum Download bereit, auch wenn der Build fehlschlägt.
 
 Der Ordner `Example/Musterbuch` enthält ein vollständiges Beispielprojekt.
 
