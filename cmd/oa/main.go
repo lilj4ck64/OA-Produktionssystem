@@ -271,6 +271,17 @@ func runValidate(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "Projekt ungültig: %v\n", err)
 		return exitValidation
 	}
+	root, err := findApplicationRoot()
+	if err != nil {
+		fmt.Fprintf(stderr, "Anwendungsressourcen nicht gefunden: %v\n", err)
+		return exitFailure
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	if err := (build.Engine{Root: root}).ValidateXML(ctx, pub.XML); err != nil {
+		fmt.Fprintf(stderr, "Projekt ungültig: %v\n", err)
+		return exitValidation
+	}
 	fmt.Fprintf(stdout, "Projekt gültig: %s\nXML: %s\n", pub.Dir, pub.XML)
 	return exitOK
 }

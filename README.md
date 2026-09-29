@@ -63,20 +63,32 @@ oa build Example/Musterbuch --format print-pdf --format web-pdf --format epub
 
 Eine Übersicht aller Befehle zeigt `oa help`.
 
+`oa validate` prüft die Projektstruktur und validiert die XML-Datei gegen die
+fest mitgelieferte BITS-2.2-DTD. Eine `DOCTYPE`-Angabe in der XML-Datei wird
+dabei ignoriert; maßgeblich ist immer `Schema/BITS-2-2-DTD/BITS-book2-2.dtd`.
+
 ## Entwicklung
 
 Für die Entwicklung werden Go gemäß `go.mod` und JDK 21 benötigt. Die
 Java-Bibliotheken und die gebündelte Laufzeitumgebung werden einmalig mit
-Gradle bereitgestellt:
+Gradle bereitgestellt. Die BITS-2.2-DTD wird dabei von der offiziellen
+NLM-Quelle heruntergeladen und lokal in `Schema/BITS-2-2-DTD` entpackt:
 
 ```powershell
 cd java-toolchain
-.\gradlew.bat syncRuntimeLibs jlinkRuntime
+.\gradlew.bat syncRuntimeLibs jlinkRuntime syncBitsDtd
 cd ..
 go run ./cmd/oa gui
 ```
 
 Unter Linux und macOS wird `./gradlew` anstelle von `gradlew.bat` verwendet.
+Die heruntergeladene DTD wird nicht mit Git versioniert. Nach einem frischen
+Checkout kann sie jederzeit separat wiederhergestellt werden:
+
+```powershell
+cd java-toolchain
+.\gradlew.bat syncBitsDtd
+```
 
 ## Lizenz
 

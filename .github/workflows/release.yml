@@ -46,7 +46,7 @@ jobs:
       - name: Build Java libraries and minimal runtime
         shell: bash
         run: |
-          bash java-toolchain/gradlew -p java-toolchain syncRuntimeLibs jlinkRuntime
+          bash java-toolchain/gradlew -p java-toolchain syncRuntimeLibs jlinkRuntime syncBitsDtd
       - name: Assemble package
         shell: bash
         env:
@@ -70,7 +70,7 @@ jobs:
           go build -trimpath -ldflags="$gui_ldflags" -o "dist/$package/$gui_binary" ./cmd/oa
           cp -R java-toolchain/build/stage/lib "dist/$package/lib"
           cp -R java-toolchain/build/stage/runtime "dist/$package/runtime"
-          cp -R Stylesheets Shared "dist/$package/resources/"
+          cp -R Stylesheets Shared Schema "dist/$package/resources/"
           cp -R Example "dist/$package/"
           cp README.md "dist/$package/"
           echo "PACKAGE=$package" >> "$GITHUB_ENV"

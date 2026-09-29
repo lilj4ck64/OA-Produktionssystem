@@ -11,9 +11,19 @@ import (
 // on an HTTP server. Replacing them with whitespace preserves line numbers in
 // later diagnostics and leaves the user's source untouched.
 func prepareXML(source, destination string) error {
+	if err := writeXMLWithoutDOCTYPE(source, destination); err != nil {
+		return fmt.Errorf("XML für Build vorbereiten: %w", err)
+	}
+	return nil
+}
+
+// writeXMLWithoutDOCTYPE writes a copy that cannot select an input-controlled
+// external DTD. Builds do not need a DTD, while validation supplies the fixed
+// application DTD separately to Xerces.
+func writeXMLWithoutDOCTYPE(source, destination string) error {
 	content, err := os.ReadFile(source)
 	if err != nil {
-		return fmt.Errorf("XML für Build lesen: %w", err)
+		return fmt.Errorf("XML lesen: %w", err)
 	}
 	content, err = neutralizeDOCTYPE(content)
 	if err != nil {

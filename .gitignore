@@ -16,6 +16,9 @@ Desktop.ini
 /java-toolchain/.gradle/
 /java-toolchain/build/
 
+# Downloaded BITS schema; regenerate it with the Gradle syncBitsDtd task.
+/Schema/BITS-2-2-DTD/
+
 # Central publication artifacts are not regular project sources.
 /Outputs/
 /Log/

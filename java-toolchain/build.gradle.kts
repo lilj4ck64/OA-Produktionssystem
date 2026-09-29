@@ -5,6 +5,12 @@ import org.gradle.api.attributes.Category
 import org.gradle.api.attributes.LibraryElements
 import org.gradle.api.attributes.Usage
 import org.gradle.api.attributes.java.TargetJvmEnvironment
+import java.net.URI
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import java.security.MessageDigest
+import java.util.zip.ZipFile
 
 plugins {
     base
@@ -13,9 +19,16 @@ plugins {
 val fopVersion = "2.11"
 val saxonVersion = "12.9"
 val epubCheckVersion = "5.3.0"
+val msvVersion = "2022.7"
+val bitsVersion = "2.2"
+val bitsArchiveBaseName = "BITS-2-2-DTD"
+val bitsArchiveUrl = URI(
+    "https://public.nlm.nih.gov/projects/jats/extensions/bits/$bitsVersion/$bitsArchiveBaseName.zip",
+)
+val bitsArchiveSha256 = "0e38f22e2b7dfab6751b8cc6ba0b2f7f9a7639b4e2c9e0c68e8eae295c9493c2"
 
 val runtimeLibs = configurations.create("runtimeLibs") {
-    description = "JARs required to run FOP, Saxon HE, and EPUBCheck"
+    description = "JARs required to run FOP, Saxon HE, EPUBCheck, and XML validation"
     isCanBeConsumed = false
     isCanBeResolved = true
     attributes {
@@ -34,6 +47,7 @@ dependencies {
     runtimeLibs("org.apache.xmlgraphics:fop:$fopVersion")
     runtimeLibs("net.sf.offo:fop-hyph:2.0")
     runtimeLibs("net.sf.saxon:Saxon-HE:$saxonVersion")
+    runtimeLibs("net.java.dev.msv:msv-core:$msvVersion")
     runtimeLibs("org.w3c:epubcheck:$epubCheckVersion") {
         exclude(group = "org.slf4j", module = "slf4j-nop")
     }
@@ -94,6 +108,84 @@ tasks.register("verifyToolVersions") {
     group = "verification"
     description = "Runs the version command for all staged Java tools."
     dependsOn(fopVersionTask, saxonVersionTask, epubCheckVersionTask)
+}
+
+val bitsArchive = layout.buildDirectory.file("downloads/$bitsArchiveBaseName.zip")
+
+val downloadBitsDtd = tasks.register("downloadBitsDtd") {
+    group = "distribution"
+    description = "Downloads the official BITS $bitsVersion DTD archive from the NLM."
+    inputs.property("sourceUrl", bitsArchiveUrl.toString())
+    inputs.property("sha256", bitsArchiveSha256)
+    outputs.file(bitsArchive)
+
+    doLast {
+        val destination = bitsArchive.get().asFile
+        destination.parentFile.mkdirs()
+        val temporary = destination.resolveSibling("${destination.name}.part")
+
+        try {
+            val connection = bitsArchiveUrl.toURL().openConnection().apply {
+                connectTimeout = 30_000
+                readTimeout = 60_000
+            }
+            connection.getInputStream().use { input ->
+                Files.copy(input, temporary.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            }
+            val actualSha256 = MessageDigest.getInstance("SHA-256")
+                .digest(temporary.readBytes())
+                .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+            require(actualSha256 == bitsArchiveSha256) {
+                "BITS archive checksum mismatch: expected $bitsArchiveSha256, got $actualSha256"
+            }
+            ZipFile(temporary).use { archive ->
+                require(
+                    archive.entries().asSequence().any {
+                        it.name.substringAfterLast('/') == "BITS-book2-2.dtd"
+                    },
+                ) { "The downloaded archive does not contain BITS-book2-2.dtd" }
+            }
+            try {
+                Files.move(
+                    temporary.toPath(),
+                    destination.toPath(),
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING,
+                )
+            } catch (_: AtomicMoveNotSupportedException) {
+                Files.move(
+                    temporary.toPath(),
+                    destination.toPath(),
+                    StandardCopyOption.REPLACE_EXISTING,
+                )
+            }
+        } finally {
+            Files.deleteIfExists(temporary.toPath())
+        }
+    }
+}
+
+tasks.register<Sync>("syncBitsDtd") {
+    group = "distribution"
+    description = "Downloads and extracts the BITS $bitsVersion DTD into Schema/$bitsArchiveBaseName."
+    dependsOn(downloadBitsDtd)
+    from(bitsArchive.map { zipTree(it.asFile) })
+    into(rootProject.layout.projectDirectory.dir("../Schema/$bitsArchiveBaseName"))
+    includeEmptyDirs = false
+
+    // Accept archives both with and without a single top-level directory.
+    eachFile {
+        val archivePrefix = "$bitsArchiveBaseName/"
+        if (path.startsWith(archivePrefix)) {
+            path = path.removePrefix(archivePrefix)
+        }
+    }
+
+    doLast {
+        val entryPoint = rootProject.file("../Schema/$bitsArchiveBaseName/BITS-book2-2.dtd")
+        require(entryPoint.isFile) { "BITS DTD entry point was not extracted: $entryPoint" }
+        logger.lifecycle("BITS $bitsVersion DTD: ${entryPoint.parentFile}")
+    }
 }
 
 val runtimeModulesFile = layout.buildDirectory.file("stage/runtime-modules.txt")
