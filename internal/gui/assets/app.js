@@ -48,7 +48,13 @@
         method: 'POST', headers: {'Accept': 'application/json'}, body: form
       });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Ordnerimport fehlgeschlagen.');
+      if (!response.ok) {
+        if (result.reportUrl) {
+          location.href = result.reportUrl;
+          return;
+        }
+        throw new Error(result.error || 'Ordnerimport fehlgeschlagen.');
+      }
       location.href = '/?message=' + encodeURIComponent(`Projekt ${result.project} wurde importiert. Ausgaben werden im zentralen Root-Ordner Outputs gespeichert.`);
     } catch (error) {
       if (error.name !== 'AbortError') status.textContent = error.message;

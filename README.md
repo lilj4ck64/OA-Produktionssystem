@@ -29,6 +29,12 @@ Publikationsdateien zum Download bereit, auch wenn der Build fehlschlägt.
 
 Der Ordner `Example/Musterbuch` enthält ein vollständiges Beispielprojekt.
 
+Beim Import in die GUI wird ein Projekt nur übernommen, wenn seine
+Dateistruktur passt und seine XML-Datei gegen die mitgelieferte BITS-2.2-DTD
+und anschließend gegen `Schema/schematron.sch` valide ist. Andernfalls öffnet
+die GUI ein Validierungslog. Die lokale GUI speichert die vollständige Datei
+im Ordner `Log`; die Server-Version bietet sie zusätzlich als Download an.
+
 ## Projektstruktur
 
 Ein Projekt muss den gleichen Namen wie seine XML-Datei tragen:
@@ -63,9 +69,11 @@ oa build Example/Musterbuch --format print-pdf --format web-pdf --format epub
 
 Eine Übersicht aller Befehle zeigt `oa help`.
 
-`oa validate` prüft die Projektstruktur und validiert die XML-Datei gegen die
-fest mitgelieferte BITS-2.2-DTD. Eine `DOCTYPE`-Angabe in der XML-Datei wird
-dabei ignoriert; maßgeblich ist immer `Schema/BITS-2-2-DTD/BITS-book2-2.dtd`.
+`oa validate` prüft die Projektstruktur und validiert die XML-Datei zuerst
+gegen die fest mitgelieferte BITS-2.2-DTD. Nur nach erfolgreicher DTD-Prüfung
+folgt die Schematron-Validierung mit `Schema/schematron.sch`. Eine
+`DOCTYPE`-Angabe in der XML-Datei wird dabei ignoriert; maßgeblich ist immer
+`Schema/BITS-2-2-DTD/BITS-book2-2.dtd`.
 
 ## Entwicklung
 

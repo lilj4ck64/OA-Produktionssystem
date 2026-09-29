@@ -18,6 +18,7 @@ plugins {
 
 val fopVersion = "2.11"
 val saxonVersion = "12.9"
+val schXsltVersion = "1.10.1"
 val epubCheckVersion = "5.3.0"
 val msvVersion = "2022.7"
 val bitsVersion = "2.2"
@@ -28,7 +29,7 @@ val bitsArchiveUrl = URI(
 val bitsArchiveSha256 = "0e38f22e2b7dfab6751b8cc6ba0b2f7f9a7639b4e2c9e0c68e8eae295c9493c2"
 
 val runtimeLibs = configurations.create("runtimeLibs") {
-    description = "JARs required to run FOP, Saxon HE, EPUBCheck, and XML validation"
+    description = "JARs required to run FOP, Saxon HE, SchXslt, EPUBCheck, and XML validation"
     isCanBeConsumed = false
     isCanBeResolved = true
     attributes {
@@ -47,6 +48,9 @@ dependencies {
     runtimeLibs("org.apache.xmlgraphics:fop:$fopVersion")
     runtimeLibs("net.sf.offo:fop-hyph:2.0")
     runtimeLibs("net.sf.saxon:Saxon-HE:$saxonVersion")
+    runtimeLibs("name.dmaus.schxslt:cli:$schXsltVersion") {
+        exclude(group = "org.slf4j", module = "slf4j-nop")
+    }
     runtimeLibs("net.java.dev.msv:msv-core:$msvVersion")
     runtimeLibs("org.w3c:epubcheck:$epubCheckVersion") {
         exclude(group = "org.slf4j", module = "slf4j-nop")

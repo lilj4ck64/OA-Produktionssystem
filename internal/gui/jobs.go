@@ -22,6 +22,7 @@ import (
 type Job struct {
 	ID              string         `json:"id"`
 	Project         string         `json:"project"`
+	Operation       string         `json:"operation"`
 	Status          string         `json:"status"`
 	Progress        int            `json:"progress"`
 	ProgressMessage string         `json:"progressMessage"`
@@ -85,7 +86,7 @@ func (s *Server) startBuild(w http.ResponseWriter, r *http.Request) {
 	}
 	id := randomID()
 	job := &Job{
-		ID: id, Project: pub.Name, Status: "wartet", Progress: 0,
+		ID: id, Project: pub.Name, Operation: "Buildauftrag", Status: "wartet", Progress: 0,
 		ProgressMessage: "Build wurde in die Warteschlange aufgenommen.", Created: time.Now(),
 		downloads: make(map[string]downloadArtifact), projectDir: pub.Dir,
 	}
@@ -103,6 +104,43 @@ func (s *Server) startBuild(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 	s.wakeWorker()
 	http.Redirect(w, r, "/jobs/"+id, http.StatusSeeOther)
+}
+
+func (s *Server) recordImportFailure(projectName string, validationLog []string, validationErr error) string {
+	if strings.TrimSpace(projectName) == "" {
+		projectName = "Unbekanntes Projekt"
+	}
+	id := randomID()
+	now := time.Now()
+	visibleLog := append([]string(nil), validationLog...)
+	visibleLog = append(visibleLog, "Fehler: "+firstLine(validationErr.Error()))
+	job := &Job{
+		ID: id, Project: projectName, Operation: "Importprüfung",
+		Status: "fehlgeschlagen", Progress: 100,
+		ProgressMessage: "Import fehlgeschlagen.", Logs: visibleLog,
+		Created: now, expiresAt: now.Add(s.retention()),
+		downloads: make(map[string]downloadArtifact),
+	}
+	s.mu.Lock()
+	s.jobs[id] = job
+	s.mu.Unlock()
+
+	completeLog := append([]string(nil), validationLog...)
+	completeLog = append(completeLog, "Fehler: "+validationErr.Error())
+	logName, logPath, logSize, logErr := s.writeBuildLog(id, completeLog)
+	s.updateJob(id, func(item *Job) {
+		if logErr != nil {
+			item.Logs = append(item.Logs, "Logdatei konnte nicht gespeichert werden: "+firstLine(logErr.Error()))
+			return
+		}
+		item.LogFileName = logName
+		item.LogSize = logSize
+		if s.artifactRoot != "" {
+			item.downloads[logName] = downloadArtifact{name: logName, path: logPath}
+			item.LogDownloadURL = "/artifacts/" + url.PathEscape(id) + "/" + url.PathEscape(logName) + "?download=1"
+		}
+	})
+	return id
 }
 
 func (s *Server) wakeWorker() {
@@ -362,10 +400,10 @@ func (s *Server) jobPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data := struct {
-		ID, Project, Status, ProgressMessage, Logs string
-		Progress, QueuePosition                    int
-		Local                                      bool
-	}{ID: job.ID, Project: job.Project, Status: job.Status, ProgressMessage: job.ProgressMessage, Logs: strings.Join(job.Logs, "\n"), Progress: job.Progress, QueuePosition: job.QueuePosition, Local: s.localHost != ""}
+		ID, Project, Operation, Status, ProgressMessage, Logs string
+		Progress, QueuePosition                               int
+		Local, Import                                         bool
+	}{ID: job.ID, Project: job.Project, Operation: job.Operation, Status: job.Status, ProgressMessage: job.ProgressMessage, Logs: strings.Join(job.Logs, "\n"), Progress: job.Progress, QueuePosition: job.QueuePosition, Local: s.localHost != "", Import: job.Operation == "Importprüfung"}
 	s.render(w, "job", data)
 }
 
@@ -488,7 +526,7 @@ func (s *Server) recentJobs() []jobView {
 	}
 	jobs := make([]recentJob, 0, len(s.jobs))
 	for _, job := range s.jobs {
-		jobs = append(jobs, recentJob{view: jobView{ID: job.ID, Project: job.Project, Status: job.Status}, created: job.Created})
+		jobs = append(jobs, recentJob{view: jobView{ID: job.ID, Project: job.Project, Operation: job.Operation, Status: job.Status}, created: job.Created})
 	}
 	s.mu.RUnlock()
 	sort.Slice(jobs, func(i, j int) bool { return jobs[i].created.After(jobs[j].created) })
@@ -503,7 +541,7 @@ func (s *Server) recentJobs() []jobView {
 }
 
 type jobView struct {
-	ID, Project, Status string
+	ID, Project, Operation, Status string
 }
 
 func (s *Server) render(w http.ResponseWriter, name string, data any) {

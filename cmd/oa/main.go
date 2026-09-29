@@ -266,11 +266,6 @@ func runValidate(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "Verwendung: oa validate <Projekt>")
 		return exitUsage
 	}
-	pub, err := project.Open(args[0])
-	if err != nil {
-		fmt.Fprintf(stderr, "Projekt ungültig: %v\n", err)
-		return exitValidation
-	}
 	root, err := findApplicationRoot()
 	if err != nil {
 		fmt.Fprintf(stderr, "Anwendungsressourcen nicht gefunden: %v\n", err)
@@ -278,7 +273,8 @@ func runValidate(args []string, stdout, stderr io.Writer) int {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	if err := (build.Engine{Root: root}).ValidateXML(ctx, pub.XML); err != nil {
+	pub, err := (build.Engine{Root: root}).ValidateProject(ctx, args[0])
+	if err != nil {
 		fmt.Fprintf(stderr, "Projekt ungültig: %v\n", err)
 		return exitValidation
 	}

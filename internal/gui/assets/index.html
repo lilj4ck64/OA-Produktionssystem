@@ -71,12 +71,12 @@
 
     {{if .Jobs}}
     <section class="card">
-      <h2>Letzte Buildaufträge</h2>
+      <h2>Letzte Vorgänge</h2>
       <div class="projects">
         {{range .Jobs}}
         <article>
           <h3>{{.Project}}</h3>
-          <p>Status: {{.Status}}</p>
+          <p>{{.Operation}} · Status: {{.Status}}</p>
           <a class="button secondary" href="/jobs/{{.ID}}">Auftrag öffnen</a>
         </article>
         {{end}}

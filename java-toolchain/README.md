@@ -1,7 +1,8 @@
 # OA Java toolchain
 
-This Gradle build downloads the Java tools required by OA with fixed and locked
-versions. A full JDK is currently required.
+This Gradle build downloads the Java tools required by OA, including SchXslt
+for Schematron validation, with fixed and locked versions. A full JDK is
+currently required.
 
 On Linux or macOS:
 

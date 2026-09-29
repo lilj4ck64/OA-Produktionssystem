@@ -212,6 +212,7 @@
       const response = await fetch('/api/jobs/' + encodeURIComponent(id));
       if (!response.ok) throw new Error('Buildstatus ist nicht erreichbar.');
       const job = await response.json();
+      const isImport = job.operation === 'Importprüfung';
       const queue = job.queuePosition ? ` (Position ${job.queuePosition})` : '';
       document.querySelector('#status').textContent = 'Status: ' + job.status + queue;
       document.querySelector('#progress').value = job.progress;
@@ -231,8 +232,8 @@
         saveStatus.textContent = 'Alle Ausgaben wurden im Ordner Outputs und die vollständige Logdatei im Ordner Log neben der Anwendung gespeichert.';
       } else if (saveStatus && job.status === 'fehlgeschlagen') {
         saveStatus.textContent = job.logFileName
-          ? 'Der Build ist fehlgeschlagen. Die vollständige Logdatei wurde im Ordner Log neben der Anwendung gespeichert.'
-          : 'Der Build ist fehlgeschlagen. Die Logdatei konnte nicht gespeichert werden.';
+          ? `${isImport ? 'Der Import' : 'Der Build'} ist fehlgeschlagen. Die vollständige Logdatei wurde im Ordner Log neben der Anwendung gespeichert.`
+          : `${isImport ? 'Der Import' : 'Der Build'} ist fehlgeschlagen. Die Logdatei konnte nicht gespeichert werden.`;
         saveStatus.classList.add('error');
       }
       if (job.status === 'wartet' || job.status === 'läuft') setTimeout(poll, 700);

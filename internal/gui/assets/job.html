@@ -4,14 +4,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Build – OA Satzsystem</title>
+  <title>{{.Operation}} – OA Satzsystem</title>
   <link rel="icon" type="image/jpeg" href="/static/icon.jpg">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
   <main>
     <header>
-      <p class="eyebrow">Buildauftrag</p>
+      <p class="eyebrow">{{.Operation}}</p>
       <h1>{{.Project}}</h1>
       <p id="status">Status: {{.Status}}{{if .QueuePosition}} (Position {{.QueuePosition}}){{end}}</p>
     </header>
@@ -19,7 +19,7 @@
       <h2>Fortschritt und Logs</h2>
       <progress id="progress" max="100" value="{{.Progress}}"></progress>
       <p id="progress-message" class="notice" role="status">{{.ProgressMessage}}</p>
-      <details>
+      <details {{if .Import}}open{{end}}>
         <summary>Log</summary>
         <pre id="logs">{{.Logs}}</pre>
       </details>
@@ -27,7 +27,7 @@
       <p id="log-download-row" hidden><a id="log-download" class="button secondary">Logdatei herunterladen</a></p>
       {{end}}
       {{if .Local}}
-      <p id="save-status" class="notice" role="status">Die fertigen Dateien werden automatisch im Ordner <code>Outputs</code> und die vollständige Logdatei im Ordner <code>Log</code> neben der Anwendung gespeichert.</p>
+      <p id="save-status" class="notice{{if .Import}} error{{end}}" role="status">{{if .Import}}Der Import ist fehlgeschlagen. Die vollständige Logdatei wurde im Ordner <code>Log</code> neben der Anwendung gespeichert.{{else}}Die fertigen Dateien werden automatisch im Ordner <code>Outputs</code> und die vollständige Logdatei im Ordner <code>Log</code> neben der Anwendung gespeichert.{{end}}</p>
       {{end}}
       <p><a class="button secondary" href="/">Zurück zur Übersicht</a></p>
     </section>

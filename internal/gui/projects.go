@@ -2,6 +2,7 @@ package gui
 
 import (
 	"archive/zip"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"sort"
 	"strings"
 
+	"oa-satzsystem/internal/build"
 	"oa-satzsystem/internal/project"
 )
 
@@ -70,11 +72,20 @@ func (s *Server) importProject(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 	projectsDir := s.projectsDir
+	var validationLog []string
 	s.projectMu.Lock()
-	name, err := importZIP(file, header, projectsDir)
+	name, err := importZIP(file, header, projectsDir, func(path string) error {
+		var validationErr error
+		validationLog, validationErr = s.validateImportedProject(r.Context(), path)
+		return validationErr
+	})
 	s.projectMu.Unlock()
 	if err != nil {
-		s.redirectMessage(w, r, "Import fehlgeschlagen: "+err.Error())
+		if name == "" {
+			name = strings.TrimSuffix(filepath.Base(header.Filename), filepath.Ext(header.Filename))
+		}
+		id := s.recordImportFailure(name, validationLog, err)
+		http.Redirect(w, r, "/jobs/"+id, http.StatusSeeOther)
 		return
 	}
 	s.redirectMessage(w, r, "Projekt "+name+" wurde importiert.")
@@ -149,12 +160,17 @@ func (s *Server) importFolder(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	name, err := publishImportedStage(stage, projectsDir)
+	var validationLog []string
+	s.projectMu.Lock()
+	name, err := publishImportedStage(stage, projectsDir, func(path string) error {
+		var validationErr error
+		validationLog, validationErr = s.validateImportedProject(r.Context(), path)
+		return validationErr
+	})
+	s.projectMu.Unlock()
 	if err != nil {
-		if name != "" {
-			_ = os.RemoveAll(filepath.Join(projectsDir, name))
-		}
-		s.folderImportResponse(w, r, "", err)
+		id := s.recordImportFailure(name, validationLog, err)
+		s.folderImportReportResponse(w, r, err, "/jobs/"+id)
 		return
 	}
 	s.folderImportResponse(w, r, name, nil)
@@ -186,7 +202,17 @@ func (s *Server) folderImportResponse(w http.ResponseWriter, r *http.Request, na
 	s.redirectMessage(w, r, "Projekt "+name+" wurde importiert.")
 }
 
-func importZIP(file multipart.File, header *multipart.FileHeader, projectsDir string) (string, error) {
+func (s *Server) folderImportReportResponse(w http.ResponseWriter, r *http.Request, err error, reportURL string) {
+	if strings.Contains(r.Header.Get("Accept"), "application/json") {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": firstLine(err.Error()), "reportUrl": reportURL})
+		return
+	}
+	http.Redirect(w, r, reportURL, http.StatusSeeOther)
+}
+
+func importZIP(file multipart.File, header *multipart.FileHeader, projectsDir string, validate func(string) error) (string, error) {
 	if !strings.EqualFold(filepath.Ext(header.Filename), ".zip") {
 		return "", fmt.Errorf("nur ZIP-Dateien werden unterstützt")
 	}
@@ -257,7 +283,7 @@ func importZIP(file multipart.File, header *multipart.FileHeader, projectsDir st
 			return "", err
 		}
 	}
-	return publishImportedStage(stage, projectsDir)
+	return publishImportedStage(stage, projectsDir, validate)
 }
 
 func containsOutputsDirectory(path string) bool {
@@ -271,7 +297,7 @@ func containsOutputsDirectory(path string) bool {
 
 // publishImportedStage validates the staged directory and moves the one
 // discovered project into the visible workspace only after validation.
-func publishImportedStage(stage, projectsDir string) (string, error) {
+func publishImportedStage(stage, projectsDir string, validate func(string) error) (string, error) {
 	projectDir, projectName, err := locateImportedProject(stage)
 	if err != nil {
 		return "", err
@@ -282,14 +308,31 @@ func publishImportedStage(stage, projectsDir string) (string, error) {
 	} else if !os.IsNotExist(err) {
 		return "", err
 	}
-	if err := os.Rename(projectDir, target); err != nil {
-		return "", fmt.Errorf("Projekt veröffentlichen: %w", err)
+	validationRoot, err := os.MkdirTemp(projectsDir, ".validation-*")
+	if err != nil {
+		return "", fmt.Errorf("Prüfbereich anlegen: %w", err)
 	}
-	if _, err := project.Open(target); err != nil {
-		_ = os.RemoveAll(target)
-		return "", fmt.Errorf("importiertes Projekt prüfen: %w", err)
+	defer os.RemoveAll(validationRoot)
+	validationPath := filepath.Join(validationRoot, projectName)
+	if err := os.Rename(projectDir, validationPath); err != nil {
+		return "", fmt.Errorf("Projekt für Prüfung bereitstellen: %w", err)
+	}
+	if err := validate(validationPath); err != nil {
+		return projectName, fmt.Errorf("importiertes Projekt prüfen: %w", err)
+	}
+	if err := os.Rename(validationPath, target); err != nil {
+		return projectName, fmt.Errorf("Projekt veröffentlichen: %w", err)
 	}
 	return projectName, nil
+}
+
+func (s *Server) validateImportedProject(ctx context.Context, path string) ([]string, error) {
+	var logLines []string
+	ctx = build.WithLogger(ctx, func(event build.LogEvent) {
+		logLines = append(logLines, event.String())
+	})
+	_, err := (build.Engine{Root: s.root}).ValidateProject(ctx, path)
+	return logLines, err
 }
 
 func locateImportedProject(stage string) (string, string, error) {
