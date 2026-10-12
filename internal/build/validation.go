@@ -61,19 +61,14 @@ func (e Engine) ValidateXML(ctx context.Context, source string) error {
 	if err != nil {
 		return fmt.Errorf("DTD-Validierung konnte nicht vorbereitet werden: %w", err)
 	}
-	result, runErr := e.javaRunner(root).RunWithOutput(ctx, root, logToolOutput(ctx, "DTD-Validierung"),
+	result, runErr := e.javaRunner(root).RunWithOutput(ctx, root, nil,
 		"-cp", classpath,
-		"com.sun.msv.driver.textui.Driver",
-		"-dtd", fileURI(dtd),
-		fileURI(validationXML),
+		toolAdapterMainClass,
+		"dtd", dtd, validationXML,
 	)
 	logToolResult(ctx, "DTD-Validierung", result, runErr)
-	diagnostics := strings.TrimSpace(result.Stdout + "\n" + result.Stderr)
 	if runErr != nil {
-		if diagnostics == "" {
-			return fmt.Errorf("XML ist nicht DTD-valide: DTD-Validierung konnte nicht ausgeführt werden: %w", runErr)
-		}
-		return fmt.Errorf("XML ist nicht DTD-valide: XML entspricht nicht der festen BITS-2.2-DTD: %w\n%s", runErr, diagnostics)
+		return apiToolFailure("DTD", result, runErr)
 	}
 
 	schematron := filepath.Join(layout.resources, filepath.FromSlash(schematronRelativePath))
@@ -97,7 +92,7 @@ func (e Engine) ValidateXML(ctx context.Context, source string) error {
 		"-e", "3",
 	)
 	logToolResult(ctx, "Schematron-Validierung", result, runErr)
-	diagnostics = strings.TrimSpace(result.Stdout + "\n" + result.Stderr)
+	diagnostics := strings.TrimSpace(result.Stdout + "\n" + result.Stderr)
 	if runErr != nil {
 		if diagnostics == "" {
 			return fmt.Errorf("XML ist nicht Schematron-valide: Schematron-Validierung konnte nicht ausgeführt werden: %w", runErr)

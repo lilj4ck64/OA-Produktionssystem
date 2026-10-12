@@ -105,23 +105,15 @@ func (e Engine) BuildPDFs(ctx context.Context, projectPath string, formats []For
 		tempPDF := filepath.Join(jobDir, pub.Name+"-"+suffix+".pdf")
 		args := []string{
 			"-cp", classpath,
-			"org.apache.fop.cli.Main",
-			"-d",
-			"-c", config,
-			"-xml", buildXML,
-			"-xsl", stylesheet,
-			"-pdf", tempPDF,
-			"-param", "Projektname", pub.Name,
-			"-param", "Projektpfad", projectURI,
-			"-param", "SharedImagesPfad", sharedImagesURI,
+			toolAdapterMainClass,
+			"fop", config, buildXML, stylesheet, tempPDF,
+			pub.Name, projectURI, sharedImagesURI,
 		}
 		logToolStart(ctx, "FOP", fmt.Sprintf("%s wird erzeugt.", format))
-		result, runErr := e.javaRunner(root).RunWithOutput(ctx, root, logToolOutput(ctx, "FOP"), args...)
+		result, runErr := e.javaRunner(root).RunWithOutput(ctx, root, nil, args...)
 		logToolResult(ctx, "FOP", result, runErr)
 		if runErr != nil {
-			diagnostics := strings.TrimSpace(result.Stdout + "\n" + result.Stderr)
-			return nil, fmt.Errorf("FOP für %s fehlgeschlagen (Exitcode %d, Dauer %s): %w\n%s",
-				format, result.ExitCode, result.Duration.Round(1e6), runErr, diagnostics)
+			return nil, apiToolFailure("FOP", result, runErr)
 		}
 		size, err := validatePDF(tempPDF)
 		if err != nil {

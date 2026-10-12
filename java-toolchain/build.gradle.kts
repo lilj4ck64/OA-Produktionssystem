@@ -1,4 +1,5 @@
 import org.gradle.api.tasks.JavaExec
+import org.gradle.api.tasks.compile.JavaCompile
 import org.gradle.api.tasks.Sync
 import org.gradle.api.attributes.Bundling
 import org.gradle.api.attributes.Category
@@ -14,6 +15,7 @@ import java.util.zip.ZipFile
 
 plugins {
     base
+    java
 }
 
 val fopVersion = "2.11"
@@ -68,7 +70,17 @@ val syncRuntimeLibs = tasks.register<Sync>("syncRuntimeLibs") {
     group = "distribution"
     description = "Synchronizes all Java runtime JARs into build/stage/lib."
     from(runtimeLibs)
+    from(tasks.named("jar"))
     into(layout.buildDirectory.dir("stage/lib"))
+}
+
+tasks.named<JavaCompile>("compileJava") {
+    classpath = runtimeLibs
+    options.encoding = "UTF-8"
+}
+
+tasks.named<Jar>("jar") {
+    archiveFileName.set("oa-tool-adapter.jar")
 }
 
 fun registerVersionTask(

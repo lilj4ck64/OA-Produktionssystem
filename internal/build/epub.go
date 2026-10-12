@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"time"
 
 	"oa-satzsystem/internal/project"
@@ -60,20 +59,15 @@ func (e Engine) BuildEPUB(ctx context.Context, projectPath string) ([]Artifact, 
 	principalOutput := filepath.Join(jobDir, "saxon-result.xml")
 	saxonArgs := []string{
 		"-cp", classpath,
-		"net.sf.saxon.Transform",
-		"-s:" + buildXML,
-		"-xsl:" + stylesheet,
-		"-o:" + principalOutput,
-		"Projekt=" + pub.Name,
-		"OutputRoot=" + outputURI,
-		"CSSStylesheet=" + epubCSSFilename,
+		toolAdapterMainClass,
+		"saxon", buildXML, stylesheet, principalOutput,
+		pub.Name, outputURI, epubCSSFilename,
 	}
 	logToolStart(ctx, "Saxon", "EPUB-Inhalte werden transformiert.")
-	result, runErr := e.javaRunner(root).RunWithOutput(ctx, root, logToolOutput(ctx, "Saxon"), saxonArgs...)
+	result, runErr := e.javaRunner(root).RunWithOutput(ctx, root, nil, saxonArgs...)
 	logToolResult(ctx, "Saxon", result, runErr)
 	if runErr != nil {
-		return nil, fmt.Errorf("Saxon-Transformation fehlgeschlagen (Exitcode %d, Dauer %s): %w\n%s",
-			result.ExitCode, result.Duration.Round(time.Millisecond), runErr, strings.TrimSpace(result.Stderr))
+		return nil, apiToolFailure("Saxon", result, runErr)
 	}
 
 	imagesTarget := filepath.Join(epubRoot, "OEBPS", "Images")
@@ -106,16 +100,14 @@ func (e Engine) BuildEPUB(ctx context.Context, projectPath string) ([]Artifact, 
 	}
 
 	logToolStart(ctx, "EPUBCheck", "Das gepackte EPUB wird validiert.")
-	checkResult, checkErr := e.javaRunner(root).RunWithOutput(ctx, root, logToolOutput(ctx, "EPUBCheck"),
+	checkResult, checkErr := e.javaRunner(root).RunWithOutput(ctx, root, nil,
 		"-cp", classpath,
-		"com.adobe.epubcheck.tool.Checker",
-		tempEPUB,
+		toolAdapterMainClass,
+		"epubcheck", tempEPUB,
 	)
 	logToolResult(ctx, "EPUBCheck", checkResult, checkErr)
 	if checkErr != nil {
-		diagnostics := strings.TrimSpace(checkResult.Stdout + "\n" + checkResult.Stderr)
-		return nil, fmt.Errorf("EPUBCheck fehlgeschlagen (Exitcode %d, Dauer %s): %w\n%s",
-			checkResult.ExitCode, checkResult.Duration.Round(time.Millisecond), checkErr, diagnostics)
+		return nil, apiToolFailure("EPUBCheck", checkResult, checkErr)
 	}
 
 	info, err := os.Stat(tempEPUB)

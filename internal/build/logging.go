@@ -54,11 +54,10 @@ func logToolStart(ctx context.Context, tool, action string) {
 }
 
 func logToolResult(ctx context.Context, tool string, result java.Result, runErr error) {
-	status := "erfolgreich"
 	if runErr != nil {
-		status = fmt.Sprintf("fehlgeschlagen (Exitcode %d)", result.ExitCode)
+		return
 	}
-	Log(ctx, fmt.Sprintf("%s: %s nach %s.", tool, status, result.Duration.Round(time.Millisecond)))
+	Log(ctx, fmt.Sprintf("%s: erfolgreich nach %s.", tool, result.Duration.Round(time.Millisecond)))
 }
 
 func logToolOutput(ctx context.Context, tool string) func(string) {
