@@ -53,7 +53,10 @@ func (e Engine) BuildEPUB(ctx context.Context, projectPath string) ([]Artifact, 
 	}
 
 	outputURI := fileURI(epubRoot)
-	classpath := filepath.Join(layout.lib, "*")
+	classpath, err := sharedJavaClasspath(layout.lib)
+	if err != nil {
+		return nil, fmt.Errorf("Java-Classpath vorbereiten: %w", err)
+	}
 	principalOutput := filepath.Join(jobDir, "saxon-result.xml")
 	saxonArgs := []string{
 		"-cp", classpath,

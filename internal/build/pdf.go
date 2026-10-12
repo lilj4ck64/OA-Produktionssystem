@@ -74,7 +74,10 @@ func (e Engine) BuildPDFs(ctx context.Context, projectPath string, formats []For
 	}
 
 	layout := resolveLayout(root)
-	classpath := filepath.Join(layout.lib, "*")
+	classpath, err := sharedJavaClasspath(layout.lib)
+	if err != nil {
+		return nil, fmt.Errorf("Java-Classpath vorbereiten: %w", err)
+	}
 	stylesheet := filepath.Join(layout.resources, "Stylesheets", "XMLtoPDF_FOP.xsl")
 	if err := requireFile(stylesheet); err != nil {
 		return nil, err

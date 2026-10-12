@@ -57,8 +57,12 @@ func (e Engine) ValidateXML(ctx context.Context, source string) error {
 	}
 
 	logToolStart(ctx, "DTD-Validierung", "XML wird gegen die feste BITS-2.2-DTD geprüft.")
+	classpath, err := sharedJavaClasspath(layout.lib)
+	if err != nil {
+		return fmt.Errorf("DTD-Validierung konnte nicht vorbereitet werden: %w", err)
+	}
 	result, runErr := e.javaRunner(root).RunWithOutput(ctx, root, logToolOutput(ctx, "DTD-Validierung"),
-		"-cp", filepath.Join(layout.lib, "*"),
+		"-cp", classpath,
 		"com.sun.msv.driver.textui.Driver",
 		"-dtd", fileURI(dtd),
 		fileURI(validationXML),
@@ -110,7 +114,7 @@ func findSchXsltCLI(libDir string) (string, error) {
 	}
 	var matches []string
 	for _, entry := range entries {
-		if entry.Type().IsRegular() && strings.HasPrefix(entry.Name(), "cli-") && strings.HasSuffix(entry.Name(), ".jar") {
+		if entry.Type().IsRegular() && strings.HasPrefix(entry.Name(), schXsltCLIJARPrefix) && strings.HasSuffix(entry.Name(), ".jar") {
 			matches = append(matches, filepath.Join(libDir, entry.Name()))
 		}
 	}

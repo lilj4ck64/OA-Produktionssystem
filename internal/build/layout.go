@@ -1,11 +1,16 @@
 package build
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"oa-satzsystem/internal/java"
 )
+
+const schXsltCLIJARPrefix = "cli-"
 
 type applicationLayout struct {
 	resources string
@@ -50,4 +55,31 @@ func (e Engine) javaRunner(root string) java.Runner {
 func isDirectory(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.IsDir()
+}
+
+// sharedJavaClasspath returns the libraries used by the regular Java tools.
+// SchXslt's CLI artifact is deliberately omitted: it is a fat JAR containing
+// its own unsigned Saxon classes and is run in isolation by ValidateXML. Mixing
+// it with the separately signed Saxon JAR makes the JVM reject the package.
+func sharedJavaClasspath(libDir string) (string, error) {
+	entries, err := os.ReadDir(libDir)
+	if err != nil {
+		return "", fmt.Errorf("Java-Bibliotheksverzeichnis lesen: %w", err)
+	}
+	var jars []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if !entry.Type().IsRegular() || !strings.HasSuffix(strings.ToLower(name), ".jar") {
+			continue
+		}
+		if strings.HasPrefix(name, schXsltCLIJARPrefix) {
+			continue
+		}
+		jars = append(jars, filepath.Join(libDir, name))
+	}
+	if len(jars) == 0 {
+		return "", fmt.Errorf("keine Java-Bibliotheken in %s gefunden", libDir)
+	}
+	sort.Strings(jars)
+	return strings.Join(jars, string(os.PathListSeparator)), nil
 }
