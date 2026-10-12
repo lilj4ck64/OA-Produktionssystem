@@ -295,19 +295,15 @@ func containsOutputsDirectory(path string) bool {
 	return false
 }
 
-// publishImportedStage validates the staged directory and moves the one
-// discovered project into the visible workspace only after validation.
+// publishImportedStage validates the staged directory and then publishes the
+// discovered project. A successful re-import replaces the previous version,
+// while a validation or publishing failure leaves that version untouched.
 func publishImportedStage(stage, projectsDir string, validate func(string) error) (string, error) {
 	projectDir, projectName, err := locateImportedProject(stage)
 	if err != nil {
 		return "", err
 	}
 	target := filepath.Join(projectsDir, projectName)
-	if _, err := os.Stat(target); err == nil {
-		return "", fmt.Errorf("Projekt %q ist bereits importiert", projectName)
-	} else if !os.IsNotExist(err) {
-		return "", err
-	}
 	validationRoot, err := os.MkdirTemp(projectsDir, ".validation-*")
 	if err != nil {
 		return "", fmt.Errorf("Prüfbereich anlegen: %w", err)
@@ -320,7 +316,26 @@ func publishImportedStage(stage, projectsDir string, validate func(string) error
 	if err := validate(validationPath); err != nil {
 		return projectName, fmt.Errorf("importiertes Projekt prüfen: %w", err)
 	}
+
+	// Renaming a directory over an existing directory is not supported on all
+	// platforms (notably Windows). Move the old project aside first so it can be
+	// restored if publishing the validated replacement fails.
+	backupPath := filepath.Join(validationRoot, ".previous-"+projectName)
+	hadPrevious := false
+	if _, err := os.Stat(target); err == nil {
+		if err := os.Rename(target, backupPath); err != nil {
+			return projectName, fmt.Errorf("vorhandenes Projekt zum Ersetzen sichern: %w", err)
+		}
+		hadPrevious = true
+	} else if !os.IsNotExist(err) {
+		return projectName, fmt.Errorf("vorhandenes Projekt prüfen: %w", err)
+	}
 	if err := os.Rename(validationPath, target); err != nil {
+		if hadPrevious {
+			if restoreErr := os.Rename(backupPath, target); restoreErr != nil {
+				return projectName, fmt.Errorf("Projekt veröffentlichen: %v; vorheriges Projekt wiederherstellen: %w", err, restoreErr)
+			}
+		}
 		return projectName, fmt.Errorf("Projekt veröffentlichen: %w", err)
 	}
 	return projectName, nil
