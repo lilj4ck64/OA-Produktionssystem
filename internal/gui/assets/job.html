@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{.Operation}} – OA Satzsystem</title>
+  <title>{{.Operation}} – OA-Satzsystem</title>
   <link rel="icon" type="image/jpeg" href="/static/icon.jpg">
   <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -13,12 +13,12 @@
     <header>
       <p class="eyebrow">{{.Operation}}</p>
       <h1>{{.Project}}</h1>
-      <p id="status">Status: {{.Status}}{{if .QueuePosition}} (Position {{.QueuePosition}}){{end}}</p>
+      <p id="status" class="status-line{{if .Import}} error{{end}}">Status: {{.Status}}{{if .QueuePosition}} (Position {{.QueuePosition}}){{end}}</p>
     </header>
     <section class="card">
       <h2>Fortschritt und Logs</h2>
-      <progress id="progress" max="100" value="{{.Progress}}"></progress>
-      <p id="progress-message" class="notice" role="status">{{.ProgressMessage}}</p>
+      <progress id="progress" class="{{if .Import}}error{{end}}" max="100" value="{{.Progress}}" aria-label="Fortschritt des Auftrags"></progress>
+      <p id="progress-message" class="notice{{if .Import}} error{{end}}" role="status">{{.ProgressMessage}}</p>
       <details {{if .Import}}open{{end}}>
         <summary>Log</summary>
         <pre id="logs">{{.Logs}}</pre>
@@ -27,7 +27,7 @@
       <p id="log-download-row" hidden><a id="log-download" class="button secondary">Logdatei herunterladen</a></p>
       {{end}}
       {{if .Local}}
-      <p id="save-status" class="notice{{if .Import}} error{{end}}" role="status">{{if .Import}}Der Import ist fehlgeschlagen. Die vollständige Logdatei wurde im Ordner <code>Log</code> neben der Anwendung gespeichert.{{else}}Die fertigen Dateien werden automatisch im Ordner <code>Outputs</code> und die vollständige Logdatei im Ordner <code>Log</code> neben der Anwendung gespeichert.{{end}}</p>
+      <p id="save-status" class="storage-status{{if and .Import (not .LogSaved)}} error{{end}}" role="status">{{if .Import}}{{if .LogSaved}}Vollständige Logdatei: Ordner <code>Log</code> neben der Anwendung.{{else}}Die vollständige Logdatei konnte nicht gespeichert werden.{{end}}{{else}}Ausgaben werden im Ordner <code>Outputs</code>, die vollständige Logdatei im Ordner <code>Log</code> neben der Anwendung gespeichert.{{end}}</p>
       {{end}}
       <p><a class="button secondary" href="/">Zurück zur Übersicht</a></p>
     </section>

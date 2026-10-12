@@ -4,7 +4,6 @@ package java
 import (
 	"bytes"
 	"context"
-	"errors"
 	"io"
 	"os/exec"
 	"strings"
@@ -69,10 +68,6 @@ func (r Runner) RunWithOutput(ctx context.Context, dir string, output func(strin
 		return result, ctxErr
 	}
 	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			return result, err
-		}
 		return result, err
 	}
 	return result, nil

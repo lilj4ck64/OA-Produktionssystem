@@ -55,7 +55,7 @@
         }
         throw new Error(result.error || 'Ordnerimport fehlgeschlagen.');
       }
-      location.href = '/?message=' + encodeURIComponent(`Projekt ${result.project} wurde importiert. Ausgaben werden im zentralen Root-Ordner Outputs gespeichert.`);
+      location.href = '/?message=' + encodeURIComponent(`Projekt ${result.project} wurde importiert. Ausgaben werden im Ordner Outputs neben der Anwendung gespeichert.`);
     } catch (error) {
       if (error.name !== 'AbortError') status.textContent = error.message;
       button.disabled = false;

@@ -7,6 +7,14 @@
 }
 
 @font-face {
+  font-family: "Source Code Pro";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/Shared/Fonts/Source_Code_Pro/SourceCodePro-Regular.ttf") format("truetype");
+}
+
+@font-face {
   font-family: "Source Sans Pro";
   font-style: normal;
   font-weight: 600;
@@ -200,6 +208,15 @@ button:hover,
   color: #fff;
 }
 
+button:disabled,
+button:disabled:hover {
+  border-color: var(--line);
+  background: var(--surface-muted);
+  color: #68737c;
+  cursor: not-allowed;
+  opacity: .8;
+}
+
 .secondary {
   border-color: var(--ink);
   background: transparent;
@@ -287,11 +304,8 @@ summary:focus-visible,
 }
 
 .projects p {
-  color: var(--ink-soft);
-}
-
-.projects p {
   margin: 7px 0 16px;
+  color: var(--ink-soft);
 }
 
 fieldset {
@@ -328,16 +342,41 @@ input[type="checkbox"] {
 .notice {
   margin: 18px 0;
   padding: 15px 19px;
-  border-left: 7px solid var(--htwk-green);
+  border-left: 7px solid var(--htwk-sea-blue);
+  background: var(--surface-blue);
+  color: #003c6b;
+  font-weight: 600;
+}
+
+.notice.success {
+  border-left-color: var(--htwk-green);
   background: #e4f4ec;
   color: #004c27;
-  font-weight: 600;
 }
 
 .notice.error {
   border-left-color: var(--htwk-red);
   background: #fce8e4;
   color: #7d1a05;
+}
+
+.status-line.error {
+  color: #7d1a05;
+  font-weight: 600;
+}
+
+.status-line.success {
+  color: #004c27;
+  font-weight: 600;
+}
+
+.storage-status {
+  color: var(--ink-soft);
+}
+
+.storage-status.error {
+  color: #7d1a05;
+  font-weight: 600;
 }
 
 details {
@@ -378,6 +417,30 @@ progress::-webkit-progress-value {
 
 progress::-moz-progress-bar {
   background: var(--htwk-sea-blue);
+}
+
+progress.error {
+  accent-color: var(--htwk-red);
+}
+
+progress.error::-webkit-progress-value {
+  background: var(--htwk-red);
+}
+
+progress.error::-moz-progress-bar {
+  background: var(--htwk-red);
+}
+
+progress.success {
+  accent-color: var(--htwk-green);
+}
+
+progress.success::-webkit-progress-value {
+  background: var(--htwk-green);
+}
+
+progress.success::-moz-progress-bar {
+  background: var(--htwk-green);
 }
 
 pre {

@@ -4,19 +4,19 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>OA Satzsystem</title>
+  <title>OA-Satzsystem</title>
   <link rel="icon" type="image/jpeg" href="/static/icon.jpg">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
   <main>
     <header>
-      <p class="eyebrow">{{if .Local}}Lokale Browser-GUI{{else}}Gemeinsamer Server{{end}}</p>
-      <h1>OA Satzsystem</h1>
+      <p class="eyebrow">{{if .Local}}Lokale Browser-GUI{{else}}Server-GUI{{end}}</p>
+      <h1>OA-Satzsystem</h1>
       <p>Projekt importieren und als PDF oder EPUB bauen.</p>
     </header>
 
-    {{if .Message}}<div class="notice">{{.Message}}</div>{{end}}
+    {{if .Message}}<div class="notice success">{{.Message}}</div>{{end}}
     {{if .Error}}<div class="notice error">{{.Error}}</div>{{end}}
 
     <section class="card">
@@ -28,8 +28,9 @@
         <p id="folder-status" role="status"></p>
       </div>
       <details>
-        <summary>ZIP-Datei als Alternative importieren</summary>
+      <summary>ZIP-Datei als Alternative importieren</summary>
       {{end}}
+      {{if not .Local}}<p>Maximal 2 GiB pro ZIP-Datei, 8 GiB entpackter Inhalt und 100.000 Archiveinträge.</p>{{end}}
       <form action="/import" method="post" enctype="multipart/form-data" id="upload-form">
         <label class="dropzone" id="dropzone">
           <strong>Projekt-ZIP hier ablegen</strong>
@@ -50,7 +51,6 @@
         {{range .Projects}}
         <article>
           <h3>{{.Name}}</h3>
-          <p>{{.Path}}</p>
           <form action="/build" method="post">
             <input type="hidden" name="project" value="{{.Name}}">
             <fieldset>

@@ -68,20 +68,20 @@ func (s *Server) startBuild(w http.ResponseWriter, r *http.Request) {
 	defer s.projectMu.Unlock()
 	pub, err := s.openWorkspaceProject(r.FormValue("project"))
 	if err != nil {
-		s.redirectMessage(w, r, "Build abgelehnt: "+err.Error())
+		s.redirectError(w, r, "Build abgelehnt: "+err.Error())
 		return
 	}
 	formats := make([]build.Format, 0, 3)
 	for _, value := range r.Form["format"] {
 		format := build.Format(value)
 		if format != build.PrintPDF && format != build.WebPDF && format != build.EPUB {
-			s.redirectMessage(w, r, "Unbekanntes Format: "+value)
+			s.redirectError(w, r, "Unbekanntes Format: "+value)
 			return
 		}
 		formats = append(formats, format)
 	}
 	if len(formats) == 0 {
-		s.redirectMessage(w, r, "Mindestens ein Ausgabeformat auswählen.")
+		s.redirectError(w, r, "Mindestens ein Ausgabeformat auswählen.")
 		return
 	}
 	id := randomID()
@@ -94,7 +94,7 @@ func (s *Server) startBuild(w http.ResponseWriter, r *http.Request) {
 	for _, existing := range s.jobs {
 		if filepath.Clean(existing.projectDir) == filepath.Clean(pub.Dir) && (existing.Status == "wartet" || existing.Status == "läuft") {
 			s.mu.Unlock()
-			s.redirectMessage(w, r, "Für dieses Projekt ist bereits ein Build eingeplant.")
+			s.redirectError(w, r, "Für dieses Projekt ist bereits ein Build eingeplant.")
 			return
 		}
 	}
@@ -387,14 +387,7 @@ func (s *Server) updateJob(id string, change func(*Job)) {
 
 func (s *Server) jobPage(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(r.URL.Path, "/jobs/")
-	s.mu.RLock()
-	job := s.jobs[id]
-	if job != nil {
-		copy := *job
-		copy.Logs = append([]string(nil), job.Logs...)
-		job = &copy
-	}
-	s.mu.RUnlock()
+	job := s.jobSnapshot(id)
 	if job == nil {
 		http.NotFound(w, r)
 		return
@@ -402,28 +395,33 @@ func (s *Server) jobPage(w http.ResponseWriter, r *http.Request) {
 	data := struct {
 		ID, Project, Operation, Status, ProgressMessage, Logs string
 		Progress, QueuePosition                               int
-		Local, Import                                         bool
-	}{ID: job.ID, Project: job.Project, Operation: job.Operation, Status: job.Status, ProgressMessage: job.ProgressMessage, Logs: strings.Join(job.Logs, "\n"), Progress: job.Progress, QueuePosition: job.QueuePosition, Local: s.localHost != "", Import: job.Operation == "Importprüfung"}
+		Local, Import, LogSaved                               bool
+	}{ID: job.ID, Project: job.Project, Operation: job.Operation, Status: job.Status, ProgressMessage: job.ProgressMessage, Logs: strings.Join(job.Logs, "\n"), Progress: job.Progress, QueuePosition: job.QueuePosition, Local: s.localHost != "", Import: job.Operation == "Importprüfung", LogSaved: job.LogFileName != ""}
 	s.render(w, "job", data)
 }
 
 func (s *Server) jobJSON(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(r.URL.Path, "/api/jobs/")
-	s.mu.RLock()
-	job := s.jobs[id]
-	if job != nil {
-		copy := *job
-		copy.Logs = append([]string(nil), job.Logs...)
-		copy.Artifacts = append([]artifactLink(nil), job.Artifacts...)
-		job = &copy
-	}
-	s.mu.RUnlock()
+	job := s.jobSnapshot(id)
 	if job == nil {
 		http.NotFound(w, r)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(job)
+}
+
+func (s *Server) jobSnapshot(id string) *Job {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	job := s.jobs[id]
+	if job != nil {
+		copy := *job
+		copy.Logs = append([]string{}, job.Logs...)
+		copy.Artifacts = append([]artifactLink{}, job.Artifacts...)
+		job = &copy
+	}
+	return job
 }
 
 func (s *Server) artifact(w http.ResponseWriter, r *http.Request) {
@@ -553,6 +551,10 @@ func (s *Server) render(w http.ResponseWriter, name string, data any) {
 
 func (s *Server) redirectMessage(w http.ResponseWriter, r *http.Request, message string) {
 	http.Redirect(w, r, "/?message="+url.QueryEscape(message), http.StatusSeeOther)
+}
+
+func (s *Server) redirectError(w http.ResponseWriter, r *http.Request, message string) {
+	http.Redirect(w, r, "/?error="+url.QueryEscape(message), http.StatusSeeOther)
 }
 
 func randomID() string {

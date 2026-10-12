@@ -10,6 +10,7 @@
   let artifactSignature = '';
   let selectedFormat = '';
   let previewVersion = 0;
+  let pollFailures = 0;
 
   const formatBytes = size => new Intl.NumberFormat('de-DE', {
     style: 'unit', unit: size >= 1_000_000 ? 'megabyte' : 'kilobyte',
@@ -208,37 +209,66 @@
   };
 
   const poll = async () => {
+    let job;
     try {
       const response = await fetch('/api/jobs/' + encodeURIComponent(id));
       if (!response.ok) throw new Error('Buildstatus ist nicht erreichbar.');
-      const job = await response.json();
-      const isImport = job.operation === 'Importprüfung';
-      const queue = job.queuePosition ? ` (Position ${job.queuePosition})` : '';
-      document.querySelector('#status').textContent = 'Status: ' + job.status + queue;
-      document.querySelector('#progress').value = job.progress;
-      document.querySelector('#progress-message').textContent = job.progressMessage;
-      document.querySelector('#logs').textContent = job.logs.join('\n');
-      const logDownload = document.querySelector('#log-download');
-      const logDownloadRow = document.querySelector('#log-download-row');
-      const finished = job.status === 'fertig' || job.status === 'fehlgeschlagen' || job.status === 'abgebrochen';
-      if (logDownload && logDownloadRow && finished && job.logDownloadUrl) {
-        logDownload.href = job.logDownloadUrl;
-        logDownload.textContent = `Logdatei herunterladen (${formatBytes(job.logSize)})`;
-        logDownloadRow.hidden = false;
-      }
+      job = await response.json();
+    } catch (_) {
+      pollFailures += 1;
+      const progressMessage = document.querySelector('#progress-message');
+      progressMessage.classList.add('error');
+      progressMessage.classList.remove('success');
+      progressMessage.textContent = pollFailures === 1
+        ? 'Der Auftragsstatus ist momentan nicht erreichbar. Verbindung wird erneut versucht …'
+        : `Der Auftragsstatus ist weiterhin nicht erreichbar (Versuch ${pollFailures}).`;
+      setTimeout(poll, Math.min(1500 * pollFailures, 10000));
+      return;
+    }
+
+    pollFailures = 0;
+    const queue = job.queuePosition ? ` (Position ${job.queuePosition})` : '';
+    const status = document.querySelector('#status');
+    status.textContent = 'Status: ' + job.status + queue;
+    status.classList.toggle('error', job.status === 'fehlgeschlagen' || job.status === 'abgebrochen');
+    status.classList.toggle('success', job.status === 'fertig');
+    const progress = document.querySelector('#progress');
+    progress.value = job.progress;
+    progress.classList.toggle('error', job.status === 'fehlgeschlagen' || job.status === 'abgebrochen');
+    progress.classList.toggle('success', job.status === 'fertig');
+    const progressMessage = document.querySelector('#progress-message');
+    progressMessage.textContent = job.progressMessage;
+    progressMessage.classList.toggle('error', job.status === 'fehlgeschlagen' || job.status === 'abgebrochen');
+    progressMessage.classList.toggle('success', job.status === 'fertig');
+    document.querySelector('#logs').textContent = (job.logs || []).join('\n');
+    const logDownload = document.querySelector('#log-download');
+    const logDownloadRow = document.querySelector('#log-download-row');
+    const finished = job.status === 'fertig' || job.status === 'fehlgeschlagen' || job.status === 'abgebrochen';
+    if (logDownload && logDownloadRow && finished && job.logDownloadUrl) {
+      logDownload.href = job.logDownloadUrl;
+      logDownload.textContent = `Logdatei herunterladen (${formatBytes(job.logSize)})`;
+      logDownloadRow.hidden = false;
+    }
+    try {
       renderArtifacts(job.artifacts || []);
-      const saveStatus = document.querySelector('#save-status');
-      if (saveStatus && job.status === 'fertig') {
-        saveStatus.textContent = 'Alle Ausgaben wurden im Ordner Outputs und die vollständige Logdatei im Ordner Log neben der Anwendung gespeichert.';
-      } else if (saveStatus && job.status === 'fehlgeschlagen') {
-        saveStatus.textContent = job.logFileName
-          ? `${isImport ? 'Der Import' : 'Der Build'} ist fehlgeschlagen. Die vollständige Logdatei wurde im Ordner Log neben der Anwendung gespeichert.`
-          : `${isImport ? 'Der Import' : 'Der Build'} ist fehlgeschlagen. Die Logdatei konnte nicht gespeichert werden.`;
-        saveStatus.classList.add('error');
-      }
-      if (job.status === 'wartet' || job.status === 'läuft') setTimeout(poll, 700);
-      else if (job.status === 'fertig') return;
-    } catch (_) { setTimeout(poll, 1500); }
+    } catch (error) {
+      progressMessage.classList.add('error');
+      progressMessage.classList.remove('success');
+      progressMessage.textContent = 'Der Auftrag wurde verarbeitet, aber die Ergebnisansicht konnte nicht aufgebaut werden. Bitte die Seite neu laden.';
+      console.error('Ergebnisansicht fehlgeschlagen:', error);
+      return;
+    }
+    const saveStatus = document.querySelector('#save-status');
+    if (saveStatus && job.status === 'fertig') {
+      saveStatus.textContent = 'Ausgaben: Ordner Outputs. Vollständige Logdatei: Ordner Log neben der Anwendung.';
+      saveStatus.classList.remove('error');
+    } else if (saveStatus && (job.status === 'fehlgeschlagen' || job.status === 'abgebrochen')) {
+      saveStatus.textContent = job.logFileName
+        ? 'Vollständige Logdatei: Ordner Log neben der Anwendung.'
+        : 'Die vollständige Logdatei konnte nicht gespeichert werden.';
+      saveStatus.classList.toggle('error', !job.logFileName);
+    }
+    if (job.status === 'wartet' || job.status === 'läuft') setTimeout(poll, 700);
   };
   poll();
 })();

@@ -18,7 +18,29 @@ import (
 )
 
 type projectView struct {
-	Name, Path string
+	Name string
+}
+
+const (
+	maxServerUploadSize   int64  = 2 << 30
+	maxServerRequestSize  int64  = maxServerUploadSize + 16<<20
+	maxServerFileSize     uint64 = 1 << 30
+	maxServerExpandedSize uint64 = 8 << 30
+	maxServerZIPEntries          = 100_000
+)
+
+type importLimits struct {
+	archiveBytes  int64
+	fileBytes     uint64
+	expandedBytes uint64
+	entries       int
+}
+
+var serverImportLimits = importLimits{
+	archiveBytes:  maxServerUploadSize,
+	fileBytes:     maxServerFileSize,
+	expandedBytes: maxServerExpandedSize,
+	entries:       maxServerZIPEntries,
 }
 
 func (s *Server) home(w http.ResponseWriter, r *http.Request) {
@@ -33,7 +55,7 @@ func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 		Message  string
 		Error    string
 		Local    bool
-	}{Projects: projects, Jobs: s.recentJobs(), Message: r.URL.Query().Get("message"), Local: s.localHost != ""}
+	}{Projects: projects, Jobs: s.recentJobs(), Message: r.URL.Query().Get("message"), Error: r.URL.Query().Get("error"), Local: s.localHost != ""}
 	if err != nil {
 		data.Error = err.Error()
 	}
@@ -53,7 +75,7 @@ func (s *Server) projects() ([]projectView, error) {
 		}
 		path := filepath.Join(projectsDir, entry.Name())
 		if _, err := project.Open(path); err == nil {
-			result = append(result, projectView{Name: entry.Name(), Path: path})
+			result = append(result, projectView{Name: entry.Name()})
 		}
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
@@ -65,16 +87,31 @@ func (s *Server) importProject(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Nur POST ist erlaubt.", http.StatusMethodNotAllowed)
 		return
 	}
+	limits := importLimits{}
+	if s.localHost == "" {
+		limits = serverImportLimits
+		r.Body = http.MaxBytesReader(w, r.Body, maxServerRequestSize)
+	}
 	file, header, err := r.FormFile("project")
 	if err != nil {
-		s.redirectMessage(w, r, "ZIP-Datei fehlt oder ist ungültig.")
+		if r.MultipartForm != nil {
+			_ = r.MultipartForm.RemoveAll()
+		}
+		message := "ZIP-Datei fehlt oder ist ungültig."
+		if s.localHost == "" {
+			message = "ZIP-Datei fehlt, ist ungültig oder überschreitet die maximale Uploadgröße von 2 GiB."
+		}
+		s.redirectError(w, r, message)
 		return
 	}
 	defer file.Close()
+	if r.MultipartForm != nil {
+		defer r.MultipartForm.RemoveAll()
+	}
 	projectsDir := s.projectsDir
 	var validationLog []string
 	s.projectMu.Lock()
-	name, err := importZIP(file, header, projectsDir, func(path string) error {
+	name, err := importZIP(file, header, projectsDir, limits, func(path string) error {
 		var validationErr error
 		validationLog, validationErr = s.validateImportedProject(r.Context(), path)
 		return validationErr
@@ -196,7 +233,7 @@ func (s *Server) folderImportResponse(w http.ResponseWriter, r *http.Request, na
 		return
 	}
 	if err != nil {
-		s.redirectMessage(w, r, "Ordnerimport fehlgeschlagen: "+err.Error())
+		s.redirectError(w, r, "Ordnerimport fehlgeschlagen: "+err.Error())
 		return
 	}
 	s.redirectMessage(w, r, "Projekt "+name+" wurde importiert.")
@@ -212,7 +249,7 @@ func (s *Server) folderImportReportResponse(w http.ResponseWriter, r *http.Reque
 	http.Redirect(w, r, reportURL, http.StatusSeeOther)
 }
 
-func importZIP(file multipart.File, header *multipart.FileHeader, projectsDir string, validate func(string) error) (string, error) {
+func importZIP(file multipart.File, header *multipart.FileHeader, projectsDir string, limits importLimits, validate func(string) error) (string, error) {
 	if !strings.EqualFold(filepath.Ext(header.Filename), ".zip") {
 		return "", fmt.Errorf("nur ZIP-Dateien werden unterstützt")
 	}
@@ -222,9 +259,18 @@ func importZIP(file multipart.File, header *multipart.FileHeader, projectsDir st
 	}
 	tempPath := temp.Name()
 	defer os.Remove(tempPath)
-	if _, err := io.Copy(temp, file); err != nil {
+	archiveReader := io.Reader(file)
+	if limits.archiveBytes > 0 {
+		archiveReader = io.LimitReader(file, limits.archiveBytes+1)
+	}
+	written, err := io.Copy(temp, archiveReader)
+	if err != nil {
 		temp.Close()
 		return "", err
+	}
+	if limits.archiveBytes > 0 && written > limits.archiveBytes {
+		temp.Close()
+		return "", fmt.Errorf("ZIP-Datei überschreitet die maximale Uploadgröße von 2 GiB")
 	}
 	if err := temp.Close(); err != nil {
 		return "", err
@@ -239,9 +285,13 @@ func importZIP(file multipart.File, header *multipart.FileHeader, projectsDir st
 		return "", err
 	}
 	defer os.RemoveAll(stage)
+	if limits.entries > 0 && len(reader.File) > limits.entries {
+		return "", fmt.Errorf("ZIP-Datei enthält mehr als %d Einträge", limits.entries)
+	}
+	var expandedBytes uint64
 	for _, entry := range reader.File {
-		clean := filepath.Clean(filepath.FromSlash(entry.Name))
-		if clean == "." || filepath.IsAbs(clean) || filepath.VolumeName(clean) != "" || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		clean, pathErr := safeImportPath(entry.Name)
+		if pathErr != nil {
 			return "", fmt.Errorf("unsicherer ZIP-Pfad %q", entry.Name)
 		}
 		if entry.Mode()&os.ModeSymlink != 0 {
@@ -264,6 +314,14 @@ func importZIP(file multipart.File, header *multipart.FileHeader, projectsDir st
 		if !entry.Mode().IsRegular() {
 			return "", fmt.Errorf("Sonderdateien sind nicht erlaubt")
 		}
+		if limits.fileBytes > 0 && entry.UncompressedSize64 > limits.fileBytes {
+			return "", fmt.Errorf("ZIP-Eintrag %q überschreitet die maximale Dateigröße von 1 GiB", entry.Name)
+		}
+		if limits.expandedBytes > 0 {
+			if entry.UncompressedSize64 > limits.expandedBytes-expandedBytes {
+				return "", fmt.Errorf("ZIP-Inhalt überschreitet die maximale entpackte Gesamtgröße von 8 GiB")
+			}
+		}
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return "", err
 		}
@@ -273,7 +331,31 @@ func importZIP(file multipart.File, header *multipart.FileHeader, projectsDir st
 		}
 		output, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 		if err == nil {
-			_, err = io.Copy(output, input)
+			entryReader := io.Reader(input)
+			copyLimit := limits.fileBytes
+			hasCopyLimit := limits.fileBytes > 0
+			if limits.expandedBytes > 0 {
+				remaining := limits.expandedBytes - expandedBytes
+				if !hasCopyLimit || remaining < copyLimit {
+					copyLimit = remaining
+				}
+				hasCopyLimit = true
+			}
+			if hasCopyLimit {
+				entryReader = io.LimitReader(input, int64(copyLimit)+1)
+			}
+			var copied int64
+			copied, err = io.Copy(output, entryReader)
+			if err == nil && hasCopyLimit && uint64(copied) > copyLimit {
+				if limits.expandedBytes > 0 && copyLimit == limits.expandedBytes-expandedBytes {
+					err = fmt.Errorf("ZIP-Inhalt überschreitet die maximale entpackte Gesamtgröße von 8 GiB")
+				} else {
+					err = fmt.Errorf("ZIP-Eintrag %q überschreitet die maximale Dateigröße von 1 GiB", entry.Name)
+				}
+			}
+			if err == nil {
+				expandedBytes += uint64(copied)
+			}
 			if closeErr := output.Close(); err == nil {
 				err = closeErr
 			}
