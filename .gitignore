@@ -1,6 +1,7 @@
 .DS_Store
 Thumbs.db
 Desktop.ini
+*_test*
 
 # Go binaries created in the repository root.
 /oa

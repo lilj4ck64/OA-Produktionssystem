@@ -42,12 +42,17 @@ import java.io.FileOutputStream;
 import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 /**
- * Calls the bundled tools through their public APIs and emits at most one
- * structured diagnostic. Human-oriented console output is intentionally not
- * part of the protocol consumed by the Go application.
+ * Calls the bundled tools through their public APIs and emits structured
+ * diagnostics. DTD validation can report multiple independent violations;
+ * the other tools return their first relevant failure. Human-oriented console
+ * output is intentionally not part of the protocol consumed by Go.
  */
 public final class ToolAdapter {
     private ToolAdapter() {
@@ -56,12 +61,17 @@ public final class ToolAdapter {
     public static void main(String[] args) {
         String tool = args.length == 0 ? "Werkzeug" : args[0];
         try {
+            if ("dtd".equals(tool)) {
+                requireArgs(args, 3);
+                List<Diagnostic> diagnostics = validateDTD(new File(args[1]), new File(args[2]));
+                if (!diagnostics.isEmpty()) {
+                    emit(diagnostics);
+                    System.exit(2);
+                }
+                return;
+            }
             Diagnostic diagnostic;
             switch (tool) {
-                case "dtd":
-                    requireArgs(args, 3);
-                    diagnostic = validateDTD(new File(args[1]), new File(args[2]));
-                    break;
                 case "fop":
                     requireArgs(args, 8);
                     diagnostic = buildPDF(args);
@@ -87,17 +97,20 @@ public final class ToolAdapter {
         }
     }
 
-    private static Diagnostic validateDTD(File dtd, File xml) throws Exception {
+    private static List<Diagnostic> validateDTD(File dtd, File xml) throws Exception {
         DTDFactoryImpl factory = new DTDFactoryImpl();
         Schema schema = factory.compileSchema(dtd);
         Verifier verifier = schema.newVerifier();
         SaxCollector collector = new SaxCollector();
         verifier.setErrorHandler(collector);
         boolean valid = verifier.verify(xml);
-        if (collector.first != null) {
-            return collector.first;
+        if (!collector.diagnostics.isEmpty()) {
+            return collector.diagnostics;
         }
-        return valid ? null : new Diagnostic("", xml.getName(), 0, 0, "XML entspricht nicht der DTD");
+        if (!valid) {
+            collector.diagnostics.add(new Diagnostic("", xml.getName(), 0, 0, "XML entspricht nicht der DTD"));
+        }
+        return collector.diagnostics;
     }
 
     private static Diagnostic buildPDF(String[] args) {
@@ -171,8 +184,22 @@ public final class ToolAdapter {
         writer.flush();
     }
 
+    private static void emit(List<Diagnostic> diagnostics) {
+        PrintWriter writer = new PrintWriter(new OutputStreamWriter(System.out, StandardCharsets.UTF_8));
+        writer.print("[");
+        for (int index = 0; index < diagnostics.size(); index++) {
+            if (index > 0) {
+                writer.print(",");
+            }
+            writer.print(diagnostics.get(index).toJSON());
+        }
+        writer.println("]");
+        writer.flush();
+    }
+
     private static final class SaxCollector implements ErrorHandler {
-        private Diagnostic first;
+        private final List<Diagnostic> diagnostics = new ArrayList<>();
+        private final Set<String> seen = new HashSet<>();
 
         @Override
         public void warning(SAXParseException exception) {
@@ -189,9 +216,6 @@ public final class ToolAdapter {
         }
 
         private void capture(SAXParseException exception) {
-            if (first != null) {
-                return;
-            }
             String message = exception.getMessage();
             if (exception instanceof ValidityViolation) {
                 ErrorInfo info = ((ValidityViolation) exception).getErrorInfo();
@@ -204,8 +228,13 @@ public final class ToolAdapter {
                             + attribute.qName + "> nicht erlaubt";
                 }
             }
-            first = new Diagnostic("", exception.getSystemId(), exception.getLineNumber(),
+            Diagnostic diagnostic = new Diagnostic("", exception.getSystemId(), exception.getLineNumber(),
                     exception.getColumnNumber(), message);
+            String identity = diagnostic.file + "\u0000" + diagnostic.line + "\u0000"
+                    + diagnostic.column + "\u0000" + diagnostic.message;
+            if (seen.add(identity)) {
+                diagnostics.add(diagnostic);
+            }
         }
     }
 

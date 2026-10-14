@@ -110,11 +110,12 @@ func (s *Server) importProject(w http.ResponseWriter, r *http.Request) {
 	}
 	projectsDir := s.projectsDir
 	var validationLog []string
+	var validationWarning error
 	s.projectMu.Lock()
 	name, err := importZIP(file, header, projectsDir, limits, func(path string) error {
-		var validationErr error
-		validationLog, validationErr = s.validateImportedProject(r.Context(), path)
-		return validationErr
+		var fatalErr error
+		validationLog, validationWarning, fatalErr = s.validateImportedProject(r.Context(), path)
+		return fatalErr
 	})
 	s.projectMu.Unlock()
 	if err != nil {
@@ -122,6 +123,11 @@ func (s *Server) importProject(w http.ResponseWriter, r *http.Request) {
 			name = strings.TrimSuffix(filepath.Base(header.Filename), filepath.Ext(header.Filename))
 		}
 		id := s.recordImportFailure(name, validationLog, err)
+		http.Redirect(w, r, "/jobs/"+id, http.StatusSeeOther)
+		return
+	}
+	if validationWarning != nil {
+		id := s.recordImportWarning(name, validationLog, validationWarning)
 		http.Redirect(w, r, "/jobs/"+id, http.StatusSeeOther)
 		return
 	}
@@ -198,16 +204,22 @@ func (s *Server) importFolder(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	var validationLog []string
+	var validationWarning error
 	s.projectMu.Lock()
 	name, err := publishImportedStage(stage, projectsDir, func(path string) error {
-		var validationErr error
-		validationLog, validationErr = s.validateImportedProject(r.Context(), path)
-		return validationErr
+		var fatalErr error
+		validationLog, validationWarning, fatalErr = s.validateImportedProject(r.Context(), path)
+		return fatalErr
 	})
 	s.projectMu.Unlock()
 	if err != nil {
 		id := s.recordImportFailure(name, validationLog, err)
 		s.folderImportReportResponse(w, r, err, "/jobs/"+id)
+		return
+	}
+	if validationWarning != nil {
+		id := s.recordImportWarning(name, validationLog, validationWarning)
+		s.folderImportWarningResponse(w, r, name, "/jobs/"+id)
 		return
 	}
 	s.folderImportResponse(w, r, name, nil)
@@ -244,6 +256,15 @@ func (s *Server) folderImportReportResponse(w http.ResponseWriter, r *http.Reque
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": firstLine(err.Error()), "reportUrl": reportURL})
+		return
+	}
+	http.Redirect(w, r, reportURL, http.StatusSeeOther)
+}
+
+func (s *Server) folderImportWarningResponse(w http.ResponseWriter, r *http.Request, name, reportURL string) {
+	if strings.Contains(r.Header.Get("Accept"), "application/json") {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"project": name, "reportUrl": reportURL})
 		return
 	}
 	http.Redirect(w, r, reportURL, http.StatusSeeOther)
@@ -423,13 +444,22 @@ func publishImportedStage(stage, projectsDir string, validate func(string) error
 	return projectName, nil
 }
 
-func (s *Server) validateImportedProject(ctx context.Context, path string) ([]string, error) {
+// validateImportedProject separates an unusable project structure from XML
+// conformance errors. Only the former prevents publication; DTD and
+// Schematron findings remain visible but may be accepted by the user.
+func (s *Server) validateImportedProject(ctx context.Context, path string) ([]string, error, error) {
 	var logLines []string
 	ctx = build.WithLogger(ctx, func(event build.LogEvent) {
 		logLines = append(logLines, event.String())
 	})
-	_, err := (build.Engine{Root: s.root}).ValidateProject(ctx, path)
-	return logLines, err
+	pub, err := project.Open(path)
+	if err != nil {
+		return logLines, nil, fmt.Errorf("Projektstruktur ungültig: %w", err)
+	}
+	if err := (build.Engine{Root: s.root}).ValidateXML(ctx, pub.XML); err != nil {
+		return logLines, err, nil
+	}
+	return logLines, nil, nil
 }
 
 func locateImportedProject(stage string) (string, string, error) {

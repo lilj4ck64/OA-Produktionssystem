@@ -113,7 +113,16 @@ func (e Engine) BuildPDFs(ctx context.Context, projectPath string, formats []For
 		result, runErr := e.javaRunner(root).RunWithOutput(ctx, root, nil, args...)
 		logToolResult(ctx, "FOP", result, runErr)
 		if runErr != nil {
-			return nil, apiToolFailure("FOP", result, runErr)
+			return nil, apiToolFailure("FOP", result, runErr,
+				apiPathRedaction{path: buildXML, replacement: filepath.Base(pub.XML)},
+				apiPathRedaction{path: tempPDF, replacement: filepath.Base(tempPDF)},
+				apiPathRedaction{path: config, replacement: filepath.Base(config)},
+				apiPathRedaction{path: stylesheet, replacement: filepath.Base(stylesheet)},
+				apiPathRedaction{path: sharedImagesDir, replacement: "Shared/Images"},
+				apiPathRedaction{path: pub.Dir, replacement: "<Projekt>"},
+				apiPathRedaction{path: jobDir, replacement: "<temporär>"},
+				apiPathRedaction{path: root, replacement: "<Anwendung>"},
+			)
 		}
 		size, err := validatePDF(tempPDF)
 		if err != nil {

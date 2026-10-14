@@ -81,10 +81,14 @@ oder `::1` akzeptiert. Eine Übersicht aller Befehle zeigt `oa help`.
 ## Validierung
 
 Importe und `oa validate` prüfen zuerst die Projektstruktur. Anschließend wird
-die XML-Datei gegen die fest mitgelieferte BITS-2.2-DTD und danach gegen
-`Schema/schematron.sch` validiert. Eine `DOCTYPE`-Angabe in der XML-Datei wird
-ignoriert; maßgeblich ist immer
-`Schema/BITS-2-2-DTD/BITS-book2-2.dtd`.
+die XML-Datei gegen die BITS-2.2-DTD und danach gegen `Schema/schematron.sch`
+validiert, sofern das jeweilige Schema installiert ist. Fehlende Schema-Dateien
+überspringen nur die zugehörige Validierung und brechen den Import nicht ab.
+DTD- oder Schematronfehler werden beim Import angezeigt, verhindern aber nicht,
+dass das Projekt übernommen und nach einer Bestätigung gebaut wird.
+Eine `DOCTYPE`-Angabe in der XML-Datei wird
+ignoriert; für die DTD-Prüfung wird ausschließlich
+`Schema/BITS-2-2-DTD/BITS-book2-2.dtd` verwendet.
 
 ## Entwicklung
 

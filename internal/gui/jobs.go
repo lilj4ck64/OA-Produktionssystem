@@ -33,6 +33,7 @@ type Job struct {
 	LogSize         int64          `json:"logSize,omitempty"`
 	Created         time.Time      `json:"-"`
 	QueuePosition   int            `json:"queuePosition,omitempty"`
+	CanBuild        bool           `json:"canBuild,omitempty"`
 	downloads       map[string]downloadArtifact
 	projectDir      string
 	expiresAt       time.Time
@@ -107,17 +108,37 @@ func (s *Server) startBuild(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) recordImportFailure(projectName string, validationLog []string, validationErr error) string {
+	return s.recordImportResult(projectName, validationLog, validationErr, false)
+}
+
+func (s *Server) recordImportWarning(projectName string, validationLog []string, validationErr error) string {
+	return s.recordImportResult(projectName, validationLog, validationErr, true)
+}
+
+func (s *Server) recordImportResult(projectName string, validationLog []string, validationErr error, imported bool) string {
 	if strings.TrimSpace(projectName) == "" {
 		projectName = "Unbekanntes Projekt"
 	}
 	id := randomID()
 	now := time.Now()
 	visibleLog := append([]string(nil), validationLog...)
-	visibleLog = append(visibleLog, "Fehler: "+firstLine(validationErr.Error()))
+	if diagnostics, ok := build.UserErrorLines(validationErr); ok {
+		for _, diagnostic := range diagnostics {
+			visibleLog = append(visibleLog, "Fehler: "+diagnostic)
+		}
+	} else {
+		visibleLog = append(visibleLog, "Fehler: "+firstLine(validationErr.Error()))
+	}
+	status := "fehlgeschlagen"
+	progressMessage := "Import fehlgeschlagen."
+	if imported {
+		status = "mit Validierungsfehlern importiert"
+		progressMessage = "Das Projekt wurde importiert. Die DTD-/Schematronfehler können übersprungen werden."
+	}
 	job := &Job{
 		ID: id, Project: projectName, Operation: "Importprüfung",
-		Status: "fehlgeschlagen", Progress: 100,
-		ProgressMessage: "Import fehlgeschlagen.", Logs: visibleLog,
+		Status: status, Progress: 100, CanBuild: imported,
+		ProgressMessage: progressMessage, Logs: visibleLog,
 		Created: now, expiresAt: now.Add(s.retention()),
 		downloads: make(map[string]downloadArtifact),
 	}
@@ -395,8 +416,8 @@ func (s *Server) jobPage(w http.ResponseWriter, r *http.Request) {
 	data := struct {
 		ID, Project, Operation, Status, ProgressMessage, Logs string
 		Progress, QueuePosition                               int
-		Local, Import, LogSaved                               bool
-	}{ID: job.ID, Project: job.Project, Operation: job.Operation, Status: job.Status, ProgressMessage: job.ProgressMessage, Logs: strings.Join(job.Logs, "\n"), Progress: job.Progress, QueuePosition: job.QueuePosition, Local: s.localHost != "", Import: job.Operation == "Importprüfung", LogSaved: job.LogFileName != ""}
+		Local, Import, LogSaved, CanBuild                     bool
+	}{ID: job.ID, Project: job.Project, Operation: job.Operation, Status: job.Status, ProgressMessage: job.ProgressMessage, Logs: strings.Join(job.Logs, "\n"), Progress: job.Progress, QueuePosition: job.QueuePosition, Local: s.localHost != "", Import: job.Operation == "Importprüfung", LogSaved: job.LogFileName != "", CanBuild: job.CanBuild}
 	s.render(w, "job", data)
 }
 

@@ -48,6 +48,10 @@
         method: 'POST', headers: {'Accept': 'application/json'}, body: form
       });
       const result = await response.json();
+      if (response.ok && result.reportUrl) {
+        location.href = result.reportUrl;
+        return;
+      }
       if (!response.ok) {
         if (result.reportUrl) {
           location.href = result.reportUrl;

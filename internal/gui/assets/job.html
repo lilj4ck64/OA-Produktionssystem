@@ -29,6 +29,18 @@
       {{if .Local}}
       <p id="save-status" class="storage-status{{if and .Import (not .LogSaved)}} error{{end}}" role="status">{{if .Import}}{{if .LogSaved}}Vollständige Logdatei: Ordner <code>Log</code> neben der Anwendung.{{else}}Die vollständige Logdatei konnte nicht gespeichert werden.{{end}}{{else}}Ausgaben werden im Ordner <code>Outputs</code>, die vollständige Logdatei im Ordner <code>Log</code> neben der Anwendung gespeichert.{{end}}</p>
       {{end}}
+      {{if .CanBuild}}
+      <form action="/build" method="post">
+        <input type="hidden" name="project" value="{{.Project}}">
+        <fieldset>
+          <legend>Ausgabeformate</legend>
+          <label><input type="checkbox" name="format" value="print-pdf" checked> Print-PDF</label>
+          <label><input type="checkbox" name="format" value="web-pdf" checked> Web-PDF</label>
+          <label><input type="checkbox" name="format" value="epub" checked> EPUB</label>
+        </fieldset>
+        <button type="submit">Weiter und Build starten</button>
+      </form>
+      {{end}}
       <p><a class="button secondary" href="/">Zurück zur Übersicht</a></p>
     </section>
     <section class="card" id="results" hidden>

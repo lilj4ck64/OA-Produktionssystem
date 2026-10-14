@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 
 	"oa-satzsystem/internal/project"
@@ -17,9 +20,9 @@ const (
 	schXsltMainClass       = "name.dmaus.schxslt.cli.Application"
 )
 
-// ValidateProject performs the complete validation shared by the CLI and the
-// GUI import: first the expected project layout, then the XML against the
-// application's fixed BITS DTD and finally against its Schematron rules.
+// ValidateProject performs the validation shared by the CLI and the GUI
+// import: first the expected project layout, then the XML against each
+// validation schema that is available in the application installation.
 func (e Engine) ValidateProject(ctx context.Context, path string) (project.Project, error) {
 	pub, err := project.Open(path)
 	if err != nil {
@@ -31,10 +34,11 @@ func (e Engine) ValidateProject(ctx context.Context, path string) (project.Proje
 	return pub, nil
 }
 
-// ValidateXML validates one XML document first against the application's fixed
-// BITS DTD and, only if that succeeds, against its fixed Schematron schema. A
-// DOCTYPE from the input is removed from a temporary copy so it cannot select
-// or load a different grammar.
+// ValidateXML validates one XML document against the application's fixed BITS
+// DTD and Schematron schema when they are installed. Missing schemas are
+// optional: the corresponding check is logged and skipped. A DOCTYPE from the
+// input is removed from a temporary copy so it cannot select or load a
+// different grammar.
 func (e Engine) ValidateXML(ctx context.Context, source string) error {
 	root, err := filepath.Abs(e.Root)
 	if err != nil {
@@ -42,8 +46,23 @@ func (e Engine) ValidateXML(ctx context.Context, source string) error {
 	}
 	layout := resolveLayout(root)
 	dtd := filepath.Join(layout.resources, filepath.FromSlash(bitsDTDRelativePath))
-	if err := requireFile(dtd); err != nil {
+	dtdAvailable, err := validationSchemaAvailable(dtd, "DTD")
+	if err != nil {
 		return err
+	}
+	schematron := filepath.Join(layout.resources, filepath.FromSlash(schematronRelativePath))
+	schematronAvailable, err := validationSchemaAvailable(schematron, "Schematron-Schema")
+	if err != nil {
+		return err
+	}
+	if !dtdAvailable {
+		Log(ctx, "DTD-Validierung: übersprungen, da die BITS-2.2-DTD nicht installiert ist.")
+	}
+	if !schematronAvailable {
+		Log(ctx, "Schematron-Validierung: übersprungen, da das Schematron-Schema nicht installiert ist.")
+	}
+	if !dtdAvailable && !schematronAvailable {
+		return nil
 	}
 	jobDir, err := os.MkdirTemp(e.TempParent, "oa-validate-*")
 	if err != nil {
@@ -52,36 +71,52 @@ func (e Engine) ValidateXML(ctx context.Context, source string) error {
 	defer os.RemoveAll(jobDir)
 
 	validationXML := filepath.Join(jobDir, filepath.Base(source))
-	if err := writeXMLWithFixedDTD(source, validationXML, fileURI(dtd)); err != nil {
-		return fmt.Errorf("XML für DTD-Validierung vorbereiten: %w", err)
+	if dtdAvailable {
+		if err := writeXMLWithFixedDTD(source, validationXML, fileURI(dtd)); err != nil {
+			return fmt.Errorf("XML für DTD-Validierung vorbereiten: %w", err)
+		}
+	} else if err := writeXMLWithoutDOCTYPE(source, validationXML); err != nil {
+		return fmt.Errorf("XML für Schematron-Validierung vorbereiten: %w", err)
 	}
 
-	logToolStart(ctx, "DTD-Validierung", "XML wird gegen die feste BITS-2.2-DTD geprüft.")
-	classpath, err := sharedJavaClasspath(layout.lib)
-	if err != nil {
-		return fmt.Errorf("DTD-Validierung konnte nicht vorbereitet werden: %w", err)
-	}
-	result, runErr := e.javaRunner(root).RunWithOutput(ctx, root, nil,
-		"-cp", classpath,
-		toolAdapterMainClass,
-		"dtd", dtd, validationXML,
-	)
-	logToolResult(ctx, "DTD-Validierung", result, runErr)
-	if runErr != nil {
-		return apiToolFailure("DTD", result, runErr)
+	if dtdAvailable {
+		logToolStart(ctx, "DTD-Validierung", "XML wird gegen die feste BITS-2.2-DTD geprüft.")
+		classpath, err := sharedJavaClasspath(layout.lib)
+		if err != nil {
+			return fmt.Errorf("DTD-Validierung konnte nicht vorbereitet werden: Java-Bibliotheken fehlen oder sind nicht lesbar")
+		}
+		result, runErr := e.javaRunner(root).RunWithOutput(ctx, root, nil,
+			"-cp", classpath,
+			toolAdapterMainClass,
+			"dtd", dtd, validationXML,
+		)
+		logToolResult(ctx, "DTD-Validierung", result, runErr)
+		if runErr != nil {
+			return apiToolFailure("DTD", result, runErr,
+				apiPathRedaction{path: validationXML, replacement: filepath.Base(source)},
+				apiPathRedaction{path: jobDir, replacement: "<temporär>"},
+				apiPathRedaction{path: dtd, replacement: filepath.Base(dtd)},
+				apiPathRedaction{path: layout.resources, replacement: "<Anwendung>"},
+			)
+		}
 	}
 
-	schematron := filepath.Join(layout.resources, filepath.FromSlash(schematronRelativePath))
-	if err := requireFile(schematron); err != nil {
-		return fmt.Errorf("Schematron-Validierung konnte nicht vorbereitet werden: %w", err)
+	if !schematronAvailable {
+		return nil
 	}
 	cli, err := findSchXsltCLI(layout.lib)
 	if err != nil {
-		return fmt.Errorf("Schematron-Validierung konnte nicht vorbereitet werden: %w", err)
+		return fmt.Errorf("Schematron-Validierung konnte nicht vorbereitet werden: SchXslt-Bibliothek fehlt oder ist nicht lesbar")
 	}
 
 	logToolStart(ctx, "Schematron-Validierung", "XML wird gegen Schema/schematron.sch geprüft.")
-	result, runErr = e.javaRunner(root).RunWithOutput(ctx, root, logToolOutput(ctx, "Schematron-Validierung"),
+	toolOutput := logToolOutput(ctx, "Schematron-Validierung")
+	safeToolOutput := func(line string) {
+		if safeLine := sanitizeValidationOutput(line, validationXML, source); safeLine != "" {
+			toolOutput(safeLine)
+		}
+	}
+	result, runErr := e.javaRunner(root).RunWithOutput(ctx, root, safeToolOutput,
 		"-Djdk.xml.totalEntitySizeLimit=10000000",
 		"-Djdk.xml.entityExpansionLimit=100000",
 		"-cp", cli,
@@ -92,7 +127,11 @@ func (e Engine) ValidateXML(ctx context.Context, source string) error {
 		"-e", "3",
 	)
 	logToolResult(ctx, "Schematron-Validierung", result, runErr)
-	diagnostics := strings.TrimSpace(result.Stdout + "\n" + result.Stderr)
+	diagnostics := sanitizeValidationOutput(
+		strings.TrimSpace(result.Stdout+"\n"+result.Stderr),
+		validationXML,
+		source,
+	)
 	if runErr != nil {
 		if diagnostics == "" {
 			return fmt.Errorf("XML ist nicht Schematron-valide: Schematron-Validierung konnte nicht ausgeführt werden: %w", runErr)
@@ -100,6 +139,106 @@ func (e Engine) ValidateXML(ctx context.Context, source string) error {
 		return fmt.Errorf("XML ist nicht Schematron-valide: %w\n%s", runErr, diagnostics)
 	}
 	return nil
+}
+
+// sanitizeValidationOutput replaces every spelling SchXslt/Saxon may use for
+// the temporary validation document. This happens before live output reaches
+// the logger and again before diagnostics are returned to callers, so neither
+// the GUI nor persisted logs disclose the server's temporary directory.
+func sanitizeValidationOutput(output, validationXML, source string) string {
+	publicName := portableBase(source)
+	output = replacePrivatePath(output, validationXML, publicName)
+	// Also redact a diagnostic that mentions only the working directory rather
+	// than the complete document path.
+	output = replacePrivatePath(output, portableDir(validationXML), "<temporär>")
+
+	// SchXslt emits a document-only header before the actual failed assertions.
+	// Once the private path has been removed this line carries no information,
+	// so omit it while retaining every concrete rule violation below it.
+	lines := strings.Split(output, "\n")
+	filtered := lines[:0]
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "[invalid] "+publicName {
+			continue
+		}
+		filtered = append(filtered, line)
+	}
+	return strings.Join(filtered, "\n")
+}
+
+func replacePrivatePath(output, path, replacement string) string {
+	for _, variant := range privatePathVariants(path) {
+		pattern := regexp.MustCompile("(?i)" + regexp.QuoteMeta(variant))
+		output = pattern.ReplaceAllStringFunc(output, func(string) string { return replacement })
+	}
+	return output
+}
+
+func privatePathVariants(path string) []string {
+	slashPath := strings.ReplaceAll(path, `\`, "/")
+	backslashPath := strings.ReplaceAll(path, "/", `\`)
+	escapedPath := (&url.URL{Path: slashPath}).EscapedPath()
+
+	variants := map[string]struct{}{}
+	add := func(value string) {
+		if value != "" {
+			variants[value] = struct{}{}
+		}
+	}
+	add(path)
+	add(slashPath)
+	add(backslashPath)
+	add(fileURI(path))
+	for _, uriPath := range []string{slashPath, escapedPath} {
+		trimmedPath := strings.TrimLeft(uriPath, "/")
+		add("file:" + uriPath)
+		add("file:/" + trimmedPath)
+		add("file:///" + trimmedPath)
+		add("file://localhost/" + trimmedPath)
+	}
+
+	result := make([]string, 0, len(variants))
+	for variant := range variants {
+		result = append(result, variant)
+	}
+	// Replace URI forms before their raw path suffixes, otherwise a leading
+	// "file:" could remain visible in the diagnostic.
+	sort.Slice(result, func(i, j int) bool { return len(result[i]) > len(result[j]) })
+	return result
+}
+
+func portableBase(path string) string {
+	path = strings.TrimRight(path, `/\`)
+	if separator := strings.LastIndexAny(path, `/\`); separator >= 0 {
+		return path[separator+1:]
+	}
+	return path
+}
+
+func portableDir(path string) string {
+	path = strings.TrimRight(path, `/\`)
+	separator := strings.LastIndexAny(path, `/\`)
+	if separator < 0 {
+		return ""
+	}
+	if separator == 0 {
+		return path[:1]
+	}
+	return path[:separator]
+}
+
+// validationSchemaAvailable deliberately reports schemas by their public
+// purpose rather than by their absolute installation path. The latter is an
+// implementation detail and must not leak into CLI or server-side import logs.
+func validationSchemaAvailable(path, name string) (bool, error) {
+	info, err := os.Stat(path)
+	if err == nil {
+		return info.Mode().IsRegular(), nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, fmt.Errorf("%s kann nicht geprüft werden", name)
 }
 
 func findSchXsltCLI(libDir string) (string, error) {

@@ -67,7 +67,15 @@ func (e Engine) BuildEPUB(ctx context.Context, projectPath string) ([]Artifact, 
 	result, runErr := e.javaRunner(root).RunWithOutput(ctx, root, nil, saxonArgs...)
 	logToolResult(ctx, "Saxon", result, runErr)
 	if runErr != nil {
-		return nil, apiToolFailure("Saxon", result, runErr)
+		return nil, apiToolFailure("Saxon", result, runErr,
+			apiPathRedaction{path: buildXML, replacement: filepath.Base(pub.XML)},
+			apiPathRedaction{path: principalOutput, replacement: filepath.Base(principalOutput)},
+			apiPathRedaction{path: stylesheet, replacement: filepath.Base(stylesheet)},
+			apiPathRedaction{path: epubRoot, replacement: "<EPUB-Arbeitsverzeichnis>"},
+			apiPathRedaction{path: pub.Dir, replacement: "<Projekt>"},
+			apiPathRedaction{path: jobDir, replacement: "<temporär>"},
+			apiPathRedaction{path: root, replacement: "<Anwendung>"},
+		)
 	}
 
 	imagesTarget := filepath.Join(epubRoot, "OEBPS", "Images")
@@ -107,7 +115,12 @@ func (e Engine) BuildEPUB(ctx context.Context, projectPath string) ([]Artifact, 
 	)
 	logToolResult(ctx, "EPUBCheck", checkResult, checkErr)
 	if checkErr != nil {
-		return nil, apiToolFailure("EPUBCheck", checkResult, checkErr)
+		return nil, apiToolFailure("EPUBCheck", checkResult, checkErr,
+			apiPathRedaction{path: tempEPUB, replacement: filepath.Base(tempEPUB)},
+			apiPathRedaction{path: epubRoot, replacement: "<EPUB-Arbeitsverzeichnis>"},
+			apiPathRedaction{path: jobDir, replacement: "<temporär>"},
+			apiPathRedaction{path: root, replacement: "<Anwendung>"},
+		)
 	}
 
 	info, err := os.Stat(tempEPUB)
